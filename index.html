@@ -902,24 +902,9 @@
     <section class="workspace-shell" data-od-id="workspace">
       <div class="app-shell">
         <aside class="left-rail">
-          <div class="rail-block">
-            <div class="rail-title">
-              <p class="meta">navigation</p>
-              <span class="meta">f1</span>
-            </div>
-            <div class="tiny-list" id="navStats"></div>
-          </div>
-
-          <div class="rail-block">
-            <div class="rail-title">
-              <p class="meta">session</p>
-              <span class="meta">runtime</span>
-            </div>
-            <div class="tiny-list">
-              <div class="tiny-row"><span class="meta">feed</span><span class="num" id="sessionFeed">streaming</span></div>
-              <div class="tiny-row"><span class="meta">timezone</span><span class="num" id="sessionTimezone">-</span></div>
-            </div>
-          </div>
+          <div id="navStats" style="display:none;"></div>
+          <span id="sessionFeed" style="display:none;">live</span>
+          <span id="sessionTimezone" style="display:none;">Europe/Madrid</span>
         </aside>
 
         <section class="center-stage">
