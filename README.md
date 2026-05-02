@@ -4,7 +4,7 @@ Terminal-style UI for Kronos forecasting with a real FastAPI backend, Dockerized
 
 ## Dashboard
 
-![Kronos WebUI Dashboard](assets/dashboard.png)
+![Kronos WebUI Dashboard](assets/dashboard-btc.png)
 
 ## Features
 
