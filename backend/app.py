@@ -10,6 +10,7 @@ from threading import Thread
 from typing import List, Literal, Optional
 from urllib.parse import urlencode
 from urllib.request import urlopen
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -392,7 +393,7 @@ def build_response(
             }
         )
 
-    now_utc = datetime.now(timezone.utc)
+    now_es = datetime.now(ZoneInfo("Europe/Madrid"))
 
     summary = (
         "Sesgo alcista con continuación probable si el volumen sostiene niveles recientes."
@@ -452,26 +453,26 @@ def build_response(
             "spreadPct": float(abs(projected_move) * 0.35 + 0.8),
             "horizon": f"{req.horizon_steps} steps",
             "risk": risk,
-            "updatedAt": now_utc.strftime("%H:%M:%SZ"),
+            "updatedAt": now_es.strftime("%H:%M:%S"),
             "summary": summary,
         },
         "watchlist": [],
         "runs": [],
         "logs": [
             {
-                "time": (now_utc - timedelta(minutes=5)).strftime("%H:%M:%SZ"),
+                "time": (now_es - timedelta(minutes=5)).strftime("%H:%M:%S"),
                 "level": "info",
                 "title": "Historical data loaded",
                 "detail": f"{source_note} · {pair_to_yahoo_symbol(req.pair)} · {req.timeframe} · {req.history}",
             },
             {
-                "time": (now_utc - timedelta(minutes=3)).strftime("%H:%M:%SZ"),
+                "time": (now_es - timedelta(minutes=3)).strftime("%H:%M:%S"),
                 "level": "info",
                 "title": "Kronos inference",
                 "detail": infer_note,
             },
             {
-                "time": (now_utc - timedelta(minutes=1)).strftime("%H:%M:%SZ"),
+                "time": (now_es - timedelta(minutes=1)).strftime("%H:%M:%S"),
                 "level": "warning" if risk == "high" else "info",
                 "title": "Signal updated",
                 "detail": f"Direction={direction} · risk={risk}",
@@ -816,6 +817,24 @@ def replay_run(run_id: int):
     payload = saved if isinstance(saved, dict) else {}
     payload.setdefault("forecast", {})
     payload["forecast"]["candles"] = candles
+
+    # Re-anchor saved forecast timestamps to the end of refreshed history so
+    # historical (blue) and forecast (orange) stay temporally aligned.
+    saved_projection = payload.get("forecast", {}).get("projection", [])
+    if isinstance(saved_projection, list) and candles:
+        try:
+            last_hist_ts = pd.Timestamp(candles[-1]["timestamp"])
+            rebased_projection = []
+            for i, point in enumerate(saved_projection):
+                if not isinstance(point, dict):
+                    continue
+                new_point = dict(point)
+                new_point["timestamp"] = (last_hist_ts + step * (i + 1)).isoformat()
+                rebased_projection.append(new_point)
+            payload["forecast"]["projection"] = rebased_projection
+        except Exception:
+            # If rebasing fails for any reason, keep original snapshot values.
+            pass
     payload.setdefault("logs", [])
     payload["logs"] = [
         {

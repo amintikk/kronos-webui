@@ -178,6 +178,27 @@
       gap: 6px;
       flex-wrap: wrap;
     }
+    .top-select {
+      min-height: 20px;
+      border: 1px solid var(--border);
+      background: #120F10;
+      color: var(--fg);
+      padding: 0 18px 0 6px;
+      font: 500 10px/1 var(--font-mono);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      appearance: none;
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+      background-position: calc(100% - 8px) 52%, calc(100% - 4px) 52%;
+      background-size: 4px 4px, 4px 4px;
+      background-repeat: no-repeat;
+    }
+    .top-select option {
+      background: #120F10;
+      color: var(--fg);
+    }
     .chip {
       display: inline-flex;
       align-items: center;
@@ -872,8 +893,7 @@
         <a href="#" data-target="logs">logs</a>
       </nav>
       <div class="topnav-meta">
-        <span class="chip">env · paper</span>
-        <span class="chip">user · analyst@kronos</span>
+        <select id="timezoneSelect" class="top-select" aria-label="Timezone"></select>
       </div>
     </div>
   </header>
@@ -887,20 +907,7 @@
               <p class="meta">navigation</p>
               <span class="meta">f1</span>
             </div>
-            <div class="sidebar-nav">
-              <div class="nav-item active"><strong>forecast console</strong><span class="meta">01</span></div>
-              <div class="nav-item"><strong>recent runs</strong><span class="meta">24</span></div>
-              <div class="nav-item"><strong>live signals</strong><span class="meta">03</span></div>
-              <div class="nav-item"><strong>system logs</strong><span class="meta">18</span></div>
-            </div>
-          </div>
-
-          <div class="rail-block">
-            <div class="rail-title">
-              <p class="meta">watchlist</p>
-              <span class="meta">live</span>
-            </div>
-            <div class="watchlist" id="watchlist"></div>
+            <div class="tiny-list" id="navStats"></div>
           </div>
 
           <div class="rail-block">
@@ -910,8 +917,7 @@
             </div>
             <div class="tiny-list">
               <div class="tiny-row"><span class="meta">feed</span><span class="num" id="sessionFeed">streaming</span></div>
-              <div class="tiny-row"><span class="meta">latency budget</span><span class="num">120 ms</span></div>
-              <div class="tiny-row"><span class="meta">pipeline</span><span class="num">forecast-v2</span></div>
+              <div class="tiny-row"><span class="meta">timezone</span><span class="num" id="sessionTimezone">-</span></div>
             </div>
           </div>
         </aside>
@@ -1189,14 +1195,15 @@
       runs: [],
       logs: [],
       health: { sync: '-', drift: '-', lastError: '-', transport: '-' },
-      ui: { isRunning: false, chartPreset: '15d', terminalOpen: false },
+      ui: { isRunning: false, chartPreset: '15d', terminalOpen: false, timezone: 'Europe/Madrid' },
       terminalLogs: [],
       lastForecastPayload: null
     };
 
     const nodes = {
-      watchlist: document.getElementById('watchlist'),
+      navStats: document.getElementById('navStats'),
       sessionFeed: document.getElementById('sessionFeed'),
+      sessionTimezone: document.getElementById('sessionTimezone'),
       spotPrice: document.getElementById('spotPrice'),
       spotPair: document.getElementById('spotPair'),
       pair: document.getElementById('pair'),
@@ -1210,6 +1217,7 @@
       refreshButton: document.getElementById('refreshButton'),
       runButton: document.getElementById('runButton'),
       saveRunButton: document.getElementById('saveRunButton'),
+      timezoneSelect: document.getElementById('timezoneSelect'),
       terminalToggle: document.getElementById('terminalToggle'),
       terminalClose: document.getElementById('terminalClose'),
       llmTerminal: document.getElementById('llmTerminal'),
@@ -1258,8 +1266,36 @@
     let searchTimer = null;
     let latestSuggestions = [];
 
+    function prettifyTimezone(tz) {
+      return String(tz || '')
+        .replace(/_/g, ' ')
+        .replace(/\//g, ' / ')
+        .toLowerCase();
+    }
+
+    function populateTimezoneSelect() {
+      const fallback = ['Europe/Madrid', 'UTC', 'America/New_York'];
+      const values = (typeof Intl.supportedValuesOf === 'function')
+        ? Intl.supportedValuesOf('timeZone')
+        : fallback;
+      const hasMadrid = values.includes('Europe/Madrid');
+      const list = hasMadrid ? values : ['Europe/Madrid', ...values];
+      nodes.timezoneSelect.innerHTML = list.map((tz) => (
+        `<option value="${tz}">tz · ${prettifyTimezone(tz)}</option>`
+      )).join('');
+      const wanted = state.ui.timezone || 'Europe/Madrid';
+      nodes.timezoneSelect.value = list.includes(wanted) ? wanted : 'Europe/Madrid';
+      state.ui.timezone = nodes.timezoneSelect.value;
+    }
+
     function nowTs() {
-      return new Date().toISOString().slice(11, 19) + 'Z';
+      return new Intl.DateTimeFormat('es-ES', {
+        timeZone: state.ui.timezone || 'Europe/Madrid',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      }).format(new Date());
     }
 
     function addTerminalLog(level, msg) {
@@ -1653,6 +1689,9 @@
       nodes.refreshButton.disabled = state.ui.isRunning;
       nodes.saveRunButton.disabled = state.ui.isRunning || !state.lastForecastPayload;
       nodes.runButton.textContent = state.ui.isRunning ? 'Running…' : 'Run Forecast';
+      if (nodes.timezoneSelect && nodes.timezoneSelect.value !== state.ui.timezone) {
+        nodes.timezoneSelect.value = state.ui.timezone;
+      }
     }
 
     function renderMetrics() {
@@ -1671,20 +1710,15 @@
       `).join('');
     }
 
-    function renderWatchlist() {
-      if (!(state.watchlist || []).length) {
-        nodes.watchlist.innerHTML = `<div class="meta">No real-time watchlist data</div>`;
-        return;
-      }
-      nodes.watchlist.innerHTML = state.watchlist.map((item) => `
-        <div class="watch-row">
-          <div class="watch-main">
-            <strong>${item.pair}</strong>
-            <span class="meta">${item.venue}</span>
-          </div>
-          <span class="num ${toneClass(item.move)}">${item.move >= 0 ? '+' : ''}${Number(item.move).toFixed(2)}%</span>
-        </div>
-      `).join('');
+    function renderNavStats() {
+      const savedRuns = (state.runs || []).length;
+      const lastSaved = savedRuns ? state.runs[0] : null;
+      const source = (state.lastForecastPayload && state.lastForecastPayload.source_note) || '-';
+      nodes.navStats.innerHTML = `
+        <div class="tiny-row"><span class="meta">saved runs</span><span class="num">${savedRuns}</span></div>
+        <div class="tiny-row"><span class="meta">last saved</span><span class="num">${lastSaved ? lastSaved.timestamp : '-'}</span></div>
+        <div class="tiny-row"><span class="meta">data source</span><span class="num">${source}</span></div>
+      `;
     }
 
     function renderSignal() {
@@ -1706,6 +1740,7 @@
 
     function renderHealth() {
       nodes.sessionFeed.textContent = state.ui.isRunning ? 'updating' : 'live';
+      nodes.sessionTimezone.textContent = state.ui.timezone || 'Europe/Madrid';
       nodes.healthSync.textContent = state.health.sync || '-';
       nodes.healthDrift.textContent = state.health.drift || '-';
       nodes.healthDrift.className = 'num ' + (state.health.drift === 'watch' ? 'trend-warning' : '');
@@ -1779,9 +1814,9 @@
     }
 
     function renderAll() {
+      renderNavStats();
       renderToolbar();
       renderMetrics();
-      renderWatchlist();
       renderSignal();
       renderHealth();
       renderRuns();
@@ -1822,7 +1857,7 @@
         applyPayload(payload);
         addTerminalLog('info', `signal=${payload?.signal?.direction || '-'} confidence=${payload?.signal?.confidencePct ?? '-'}% risk=${payload?.signal?.risk || '-'}`);
       } catch (error) {
-        state.logs = [{ time: new Date().toISOString().slice(11, 19) + 'Z', level: 'error', title: 'Forecast error', detail: String(error.message || error) }];
+        state.logs = [{ time: nowTs(), level: 'error', title: 'Forecast error', detail: String(error.message || error) }];
         state.health.lastError = String(error.message || error);
         state.ui.isRunning = false;
         addTerminalLog('error', `forecast failed: ${String(error.message || error)}`);
@@ -1943,6 +1978,11 @@
         renderTerminal();
       });
 
+      nodes.timezoneSelect.addEventListener('change', () => {
+        state.ui.timezone = nodes.timezoneSelect.value || 'Europe/Madrid';
+        renderTerminal();
+      });
+
       nodes.terminalClose.addEventListener('click', () => {
         state.ui.terminalOpen = false;
         renderTerminal();
@@ -1957,6 +1997,7 @@
     }
 
     async function init() {
+      populateTimezoneSelect();
       bindEvents();
       syncControlsFromInputs();
       renderAll();
