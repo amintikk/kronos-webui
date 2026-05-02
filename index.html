@@ -223,8 +223,9 @@
       display: grid;
       grid-template-columns: minmax(220px, 20%) minmax(0, 80%);
       grid-template-rows: auto 1fr;
-      border: 1px solid var(--border);
-      background: color-mix(in oklch, var(--surface) 42%, transparent);
+      column-gap: 10px;
+      border: 0;
+      background: transparent;
     }
     .left-rail,
     .center-stage,
@@ -232,18 +233,19 @@
     .left-rail {
       grid-column: 1;
       grid-row: 1;
-      border-right: 1px solid var(--border);
+      border-right: 0;
     }
     .center-stage {
       grid-column: 2;
       grid-row: 1 / span 2;
+      border: 1px solid var(--border);
+      background: color-mix(in oklch, var(--surface) 42%, transparent);
     }
     .right-rail {
       grid-column: 1;
       grid-row: 2;
-      border-right: 1px solid var(--border);
-      border-top: 1px solid var(--border);
-      border-left: 0;
+      border: 1px solid var(--border);
+      background: color-mix(in oklch, var(--surface) 42%, transparent);
     }
 
     .rail-block {
