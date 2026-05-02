@@ -1,59 +1,76 @@
 # Kronos WebUI
 
-UI técnica de Kronos conectada a backend real en Docker.
+Terminal-style UI for Kronos forecasting with a real FastAPI backend, Dockerized deployment, probabilistic inference, and replayable saved runs.
 
-## Qué incluye
+## Dashboard
 
-- Frontend terminal (`index.html`) con:
-  - input de par (`BTC/USDT`, etc.)
-  - selector de timeframe
-  - selector de modelo (`Kronos-small`, `Kronos-base`, `Kronos-ensemble`)
-  - botón `Run Forecast`
-- API FastAPI (`/api/forecast`) que:
-  - obtiene histórico desde Yahoo Finance (yfinance)
-  - ejecuta inferencia con Kronos oficial
-  - devuelve payload para renderizar gráficos, señales, runs y logs
-- Despliegue completo con Docker Compose.
+![Kronos WebUI Dashboard](assets/dashboard.png)
 
-## Modelos
+## Features
 
-- `Kronos-small` -> `NeoQuasar/Kronos-small`
-- `Kronos-base` -> `NeoQuasar/Kronos-base`
-- `Kronos-ensemble` -> media de `small` + `base`
+- Real market history from `Yahoo Finance` + `Binance` fallback.
+- Kronos model execution:
+  - `Kronos-small`
+  - `Kronos-base`
+  - `Kronos-ensemble`
+- Probabilistic forecast bands (`p10 / p50 / p90`) from stochastic sampling.
+- Adjustable runtime controls:
+  - pair (`BTCUSDT`, etc.)
+  - timeframe
+  - range
+  - horizon
+  - sample runs
+  - model
+  - exchange mode
+- Live progress terminal while inference runs.
+- Manual `Save` flow for clean `Saved runs` (no auto-save spam).
+- Replay any saved run on the main chart with updated historical context.
 
-Nota: `Kronos-large` no es público en Hugging Face en este momento.
+## Stack
 
-## Arranque
+- Frontend: static `index.html` (dark terminal-style UI)
+- Backend: `FastAPI`
+- Forecast engine: official Kronos models
+- Storage: SQLite (`./data/runs.sqlite3`, persistent volume)
+- Deployment: Docker Compose
+
+## Run
 
 ```bash
 docker compose up -d --build
 ```
 
-## URL
+## Access
 
-- WebUI/API: `http://<IP_SERVIDOR>:18080`
-- Health: `http://<IP_SERVIDOR>:18080/api/health`
+- App: `http://<SERVER_IP>:18080`
+- Health: `http://<SERVER_IP>:18080/api/health`
 
-## Endpoint principal
+## Core API
 
-`POST /api/forecast`
+- `POST /api/forecast` - forecast response
+- `POST /api/forecast/stream` - live progress stream + result
+- `POST /api/runs/save` - manual save current forecast
+- `GET /api/runs` - list saved runs
+- `GET /api/runs/{id}` - replay saved run
 
-Ejemplo:
+Example:
 
 ```bash
 curl -X POST http://127.0.0.1:18080/api/forecast \
   -H 'content-type: application/json' \
   -d '{
-    "pair": "BTC/USDT",
+    "pair": "BTCUSDT",
     "timeframe": "1h",
-    "history": "7d",
+    "history": "15d",
     "model": "Kronos-base",
-    "exchange": "Binance",
-    "horizon_steps": 12
+    "exchange": "auto",
+    "horizon_steps": 24,
+    "sample_runs": 7
   }'
 ```
 
-## Notas operativas
+## Notes
 
-- Si Yahoo Finance limita peticiones temporalmente, el backend usa fallback para no romper la UI.
-- La primera inferencia puede tardar más por descarga/cache de pesos.
+- First run can be slower due to model warm-up.
+- Higher `sample_runs` means better probabilistic stability but much higher latency.
+- Data persistence is volume-backed (`./data`) so saved runs survive container rebuilds.
