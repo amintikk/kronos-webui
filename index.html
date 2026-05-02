@@ -175,7 +175,7 @@
       width: 100%;
       min-height: calc(100vh - 66px);
       display: grid;
-      grid-template-columns: minmax(220px, 20%) minmax(0, 60%) minmax(260px, 20%);
+      grid-template-columns: minmax(200px, 18%) minmax(0, 64%) minmax(220px, 18%);
       border: 1px solid var(--border);
       background: color-mix(in oklch, var(--surface) 42%, transparent);
     }
@@ -271,12 +271,19 @@
       letter-spacing: -0.02em;
     }
     .toolbar-controls {
-      display: flex;
+      display: grid;
+      grid-template-columns:
+        minmax(140px, 1.4fr) /* pair */
+        minmax(64px, 0.7fr)  /* tf */
+        minmax(72px, 0.8fr)  /* range */
+        minmax(120px, 1.2fr) /* model */
+        minmax(108px, 1.1fr) /* exchange */
+        minmax(64px, 0.7fr); /* horizon */
       align-items: center;
-      justify-content: center;
+      justify-content: stretch;
       min-width: 0;
-      overflow: hidden;
-      flex-wrap: wrap;
+      gap: 0;
+      overflow: visible;
     }
     .toolbar-actions {
       display: flex;
@@ -288,13 +295,15 @@
       border-left: 1px solid var(--border);
     }
     .field {
-      display: inline-flex;
-      align-items: center;
-      gap: 7px;
-      min-height: 42px;
-      padding: 0 10px;
+      display: grid;
+      grid-template-rows: 10px auto;
+      align-content: center;
+      gap: 4px;
+      min-height: 44px;
+      padding: 6px 8px;
       border-right: 1px solid var(--border);
       white-space: nowrap;
+      position: relative;
     }
     .field:last-child { border-right: 0; }
     .field label {
@@ -302,23 +311,68 @@
       font: 500 9px/1 var(--font-body);
       text-transform: uppercase;
       letter-spacing: 0.08em;
+      line-height: 1;
     }
     .input {
       min-width: 0;
       border: 0;
-      padding: 0;
+      padding: 0 0 1px;
       background: transparent;
       outline: none;
       color: var(--fg);
-      font-size: 12px;
+      font-size: 11px;
+      font-family: var(--font-mono);
+      line-height: 1;
     }
     select.input {
       appearance: none;
+      background-color: #0d0e11;
+      color: #f4f4f5;
       padding-right: 12px;
       background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
       background-position: calc(100% - 8px) 52%, calc(100% - 4px) 52%;
       background-size: 4px 4px, 4px 4px;
       background-repeat: no-repeat;
+    }
+    select.input option {
+      background: #0d0e11;
+      color: #f4f4f5;
+    }
+    .suggestions {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 8px;
+      right: 8px;
+      max-height: 180px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      border: 1px solid var(--border);
+      background: #0d0e11;
+      z-index: 40;
+      display: none;
+      scrollbar-width: thin;
+    }
+    .suggestions.open { display: block; }
+    .suggestion-item {
+      display: block;
+      width: 100%;
+      border: 0;
+      border-bottom: 1px solid #1b1c21;
+      background: transparent;
+      color: var(--fg);
+      text-align: left;
+      padding: 7px 8px;
+      font: 500 11px/1.2 var(--font-mono);
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .suggestion-item:last-child {
+      border-bottom: 0;
+    }
+    .suggestion-item:hover {
+      background: #17181d;
     }
     .input:focus { color: var(--accent); }
     .btn {
@@ -382,7 +436,39 @@
     .chart-shell {
       min-height: 0;
       display: grid;
-      grid-template-rows: minmax(0, 1fr) auto;
+      grid-template-rows: auto minmax(0, 1fr) auto;
+    }
+    .chart-tools {
+      min-height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 0 10px;
+      border-bottom: 1px solid var(--border);
+      background: color-mix(in oklch, var(--surface) 52%, transparent);
+    }
+    .chart-presets {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .btn-chart {
+      min-height: 22px;
+      padding: 0 7px;
+      font-size: 9px;
+    }
+    .btn-chart.active {
+      color: var(--bg);
+      background: var(--fg);
+      border-color: var(--fg);
+    }
+    .chart-help {
+      color: var(--muted);
+      font: 500 10px/1 var(--font-body);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
     }
     .chart-frame {
       min-height: clamp(480px, calc(100vh - 250px), 840px);
@@ -393,10 +479,7 @@
     .chart-stage {
       min-width: 0;
       overflow: hidden;
-      background:
-        linear-gradient(to right, color-mix(in oklch, var(--border) 60%, transparent) 1px, transparent 1px) 0 0 / calc(100% / 16) 100%,
-        linear-gradient(to bottom, color-mix(in oklch, var(--border) 60%, transparent) 1px, transparent 1px) 0 0 / 100% calc(100% / 10),
-        color-mix(in oklch, var(--surface) 42%, transparent);
+      background: color-mix(in oklch, var(--surface) 42%, transparent);
     }
     .chart-svg {
       width: 100%;
@@ -574,6 +657,89 @@
       font-size: 10px;
       padding: 8px 12px 14px;
     }
+    .foot-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .terminal-toggle {
+      min-height: 22px;
+      padding: 0 8px;
+      font-size: 9px;
+      letter-spacing: 0.06em;
+    }
+    .llm-terminal {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: min(42vh, 380px);
+      background: #06070a;
+      border-top: 1px solid #2a2d38;
+      box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.35);
+      z-index: 45;
+      transform: translateY(102%);
+      transition: transform 0.22s ease;
+      display: grid;
+      grid-template-rows: 34px 1fr;
+    }
+    .llm-terminal.open {
+      transform: translateY(0);
+    }
+    .llm-terminal-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 0 10px;
+      border-bottom: 1px solid #202330;
+      background: #0b0d12;
+    }
+    .llm-terminal-title {
+      color: #d7dbe7;
+      font: 600 11px/1 var(--font-mono);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .llm-terminal-sub {
+      color: #8f97ab;
+      font: 500 10px/1 var(--font-mono);
+    }
+    .llm-terminal-head-right {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .terminal-close {
+      min-height: 20px;
+      padding: 0 7px;
+      font-size: 9px;
+      letter-spacing: 0.05em;
+    }
+    .llm-terminal-body {
+      overflow: auto;
+      padding: 8px 10px 12px;
+      font: 500 11px/1.45 var(--font-mono);
+      color: #d4d8e4;
+      background:
+        linear-gradient(to bottom, rgba(120, 120, 170, 0.05), transparent 120px),
+        #06070a;
+    }
+    .term-line {
+      display: grid;
+      grid-template-columns: 84px 68px 1fr;
+      gap: 8px;
+      padding: 2px 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .term-line .ts { color: #7f879a; }
+    .term-line .lv-info { color: #83d0ff; }
+    .term-line .lv-step { color: #c5a8ff; }
+    .term-line .lv-warn { color: #ffd27f; }
+    .term-line .lv-error { color: #ff8f8f; }
+    .term-line .msg { color: #dce1f0; }
 
     @media (max-width: 1320px) {
       .metric-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -604,6 +770,7 @@
       .chart-stats,
       .signal-summary-grid,
       .signal-grid { grid-template-columns: 1fr; }
+      .toolbar-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .price-scale {
         border-left: 0;
         border-top: 1px solid var(--border);
@@ -628,11 +795,11 @@
         <span>Kronos</span>
       </div>
       <nav aria-label="Primary">
-        <a class="active" href="#">workbench</a>
-        <a href="#">runs</a>
-        <a href="#">signals</a>
-        <a href="#">datasets</a>
-        <a href="#">logs</a>
+        <a class="active" href="#" data-target="workbench">workbench</a>
+        <a href="#" data-target="runs">runs</a>
+        <a href="#" data-target="signals">signals</a>
+        <a href="#" data-target="datasets">datasets</a>
+        <a href="#" data-target="logs">logs</a>
       </nav>
       <div class="topnav-meta">
         <span class="chip">env · paper</span>
@@ -689,7 +856,8 @@
             <div class="toolbar-controls" aria-label="Forecast parameters">
               <div class="field">
                 <label for="pair">pair</label>
-                <input id="pair" class="input" type="text" value="BTC/USDT" />
+                <input id="pair" class="input" type="text" value="BTC/USDT" autocomplete="off" />
+                <div id="pairSuggestions" class="suggestions"></div>
               </div>
               <div class="field">
                 <label for="timeframe">tf</label>
@@ -706,6 +874,7 @@
                 <label for="history">range</label>
                 <select id="history" class="input">
                   <option>7d</option>
+                  <option>15d</option>
                   <option selected>30d</option>
                   <option>90d</option>
                   <option>custom</option>
@@ -722,10 +891,19 @@
               <div class="field">
                 <label for="exchange">exchange</label>
                 <select id="exchange" class="input">
-                  <option>Binance</option>
-                  <option>Coinbase Advanced</option>
-                  <option>Bybit</option>
-                  <option>Kraken</option>
+                  <option selected>auto</option>
+                  <option>yahoo</option>
+                  <option>binance</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="horizonHours">horizon</label>
+                <select id="horizonHours" class="input">
+                  <option>6</option>
+                  <option>12</option>
+                  <option selected>24</option>
+                  <option>48</option>
+                  <option>72</option>
                 </select>
               </div>
             </div>
@@ -744,14 +922,30 @@
 
           <div class="metric-bar" id="metricBar"></div>
 
-          <div class="chart-shell">
+          <div class="chart-shell" id="workbenchSection">
+            <div class="chart-tools">
+              <div class="chart-presets">
+                <button class="btn btn-secondary btn-chart" type="button" data-chart-preset="1d">1D</button>
+                <button class="btn btn-secondary btn-chart" type="button" data-chart-preset="7d">7D</button>
+                <button class="btn btn-secondary btn-chart" type="button" data-chart-preset="15d">15D</button>
+                <button class="btn btn-secondary btn-chart active" type="button" data-chart-preset="30d">30D</button>
+                <button class="btn btn-secondary btn-chart" type="button" data-chart-preset="90d">90D</button>
+                <button class="btn btn-secondary btn-chart" type="button" data-chart-preset="all">ALL</button>
+                <button class="btn btn-secondary btn-chart" type="button" id="chartReset">Reset</button>
+              </div>
+              <span class="chart-help">wheel: zoom · drag: pan</span>
+            </div>
             <div class="chart-frame">
               <div class="chart-stage">
-                <svg class="chart-svg" id="candlesSvg" viewBox="0 0 1080 520" preserveAspectRatio="none" aria-label="Candlestick chart"></svg>
-                <svg class="volume-svg" id="volumeSvg" viewBox="0 0 1080 90" preserveAspectRatio="none" aria-label="Volume chart"></svg>
-                <div class="axis-strip" id="axisStrip"></div>
+                <div id="tvChart" class="chart-svg" style="height: calc(100% - 1px); border-bottom: 0;"></div>
               </div>
-              <div class="price-scale" id="priceScale"></div>
+              <div class="price-scale">
+                <span>max</span>
+                <span>p75</span>
+                <span>mid</span>
+                <span>p25</span>
+                <span>min</span>
+              </div>
             </div>
 
             <div class="chart-stats">
@@ -760,10 +954,11 @@
               <div class="chart-stat"><span class="meta">expected vol</span><strong class="num" id="expectedVol">3.12%</strong></div>
               <div class="chart-stat"><span class="meta">run latency</span><strong class="num" id="runLatency">412 ms</strong></div>
             </div>
+            <div class="chart-stats" id="analyticsStats"></div>
           </div>
 
           <div class="bottom-zone">
-            <div class="table-zone">
+            <div class="table-zone" id="runsSection">
               <div class="table-head">
                 <h2>Recent runs</h2>
                 <span class="chip">forecast history</span>
@@ -785,7 +980,7 @@
               </div>
             </div>
 
-            <div class="log-zone">
+            <div class="log-zone" id="logsSection">
               <div class="log-head">
                 <h2>Events</h2>
                 <span class="chip">stream</span>
@@ -795,7 +990,7 @@
           </div>
         </section>
 
-        <aside class="right-rail">
+        <aside class="right-rail" id="signalsSection">
           <div class="signal-panel">
             <div class="signal-head">
               <h2>Signal snapshot</h2>
@@ -866,590 +1061,727 @@
   </main>
 
   <footer class="pagefoot" data-od-id="footer">
-    <div class="row-between">
+    <div class="foot-row">
       <span class="meta">Kronos production terminal shell</span>
-      <span class="meta">unified state · modular renderers · backend-ready structure</span>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span class="meta">unified state · modular renderers · backend-ready structure</span>
+        <button id="terminalToggle" class="btn btn-secondary terminal-toggle" type="button">LLM Terminal</button>
+      </div>
     </div>
   </footer>
 
+  <section id="llmTerminal" class="llm-terminal" aria-label="LLM terminal logs">
+    <div class="llm-terminal-head">
+      <span class="llm-terminal-title">Kronos Inference Terminal</span>
+      <div class="llm-terminal-head-right">
+        <span class="llm-terminal-sub" id="terminalStatus">idle</span>
+        <button id="terminalClose" class="btn btn-secondary terminal-close" type="button">Close</button>
+      </div>
+    </div>
+    <div class="llm-terminal-body" id="terminalBody"></div>
+  </section>
+
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
   <script>
-    const initialState = {
-      ui: {
-        isRunning: false,
-        lastRefreshAt: null
-      },
+    const state = {
       controls: {
         pair: 'BTC/USDT',
         timeframe: '1h',
         history: '30d',
         model: 'Kronos-base',
-        exchange: 'Binance',
-        horizon: '12h'
+        exchange: 'auto',
+        horizonHours: 24
       },
-      market: {
-        price: 64483.03,
-        change24h: 1.42,
-        volume24h: 32400000000,
-        volatility: 3.12,
-        confidence: 84
-      },
-      forecast: {
-        latencyMs: 412,
-        projectedMovePct: 2.84,
-        expectedVolPct: 3.12,
-        candles: [],
-        projection: [],
-        forecastWindowLabel: '12h / 12 steps'
-      },
-      signal: {
-        direction: 'bullish',
-        confidencePct: 84,
-        spreadPct: 1.26,
-        horizon: '12h',
-        risk: 'medium',
-        updatedAt: '14:42:18Z',
-        summary: 'Continuation above local midpoint remains favored if spot volume stays above six-hour median.'
-      },
+      market: { price: null, change24h: null, volume24h: null, volatility: null, confidence: null },
+      forecast: { latencyMs: null, projectedMovePct: null, expectedVolPct: null, forecastWindowLabel: null, candles: [], projection: [] },
+      signal: { direction: null, confidencePct: null, spreadPct: null, horizon: null, risk: null, updatedAt: null, summary: null },
+      analytics: {},
       watchlist: [],
       runs: [],
       logs: [],
-      health: {
-        sync: 'ok',
-        drift: 'stable',
-        lastError: 'none',
-        transport: 'ws://market-feed'
-      }
+      health: { sync: '-', drift: '-', lastError: '-', transport: '-' },
+      ui: { isRunning: false, chartPreset: '30d', terminalOpen: false },
+      terminalLogs: []
     };
 
-    const app = (() => {
-      const state = structuredClone(initialState);
+    const nodes = {
+      watchlist: document.getElementById('watchlist'),
+      sessionFeed: document.getElementById('sessionFeed'),
+      spotPrice: document.getElementById('spotPrice'),
+      spotPair: document.getElementById('spotPair'),
+      pair: document.getElementById('pair'),
+      pairSuggestions: document.getElementById('pairSuggestions'),
+      timeframe: document.getElementById('timeframe'),
+      history: document.getElementById('history'),
+      model: document.getElementById('model'),
+      exchange: document.getElementById('exchange'),
+      horizonHours: document.getElementById('horizonHours'),
+      refreshButton: document.getElementById('refreshButton'),
+      runButton: document.getElementById('runButton'),
+      terminalToggle: document.getElementById('terminalToggle'),
+      terminalClose: document.getElementById('terminalClose'),
+      llmTerminal: document.getElementById('llmTerminal'),
+      terminalBody: document.getElementById('terminalBody'),
+      terminalStatus: document.getElementById('terminalStatus'),
+      chartReset: document.getElementById('chartReset'),
+      chartPresetButtons: Array.from(document.querySelectorAll('[data-chart-preset]')),
+      metricBar: document.getElementById('metricBar'),
+      forecastWindow: document.getElementById('forecastWindow'),
+      projectedMove: document.getElementById('projectedMove'),
+      expectedVol: document.getElementById('expectedVol'),
+      runLatency: document.getElementById('runLatency'),
+      analyticsStats: document.getElementById('analyticsStats'),
+      resultsBody: document.getElementById('resultsBody'),
+      logFeed: document.getElementById('logFeed'),
+      signalPair: document.getElementById('signalPair'),
+      signalDirection: document.getElementById('signalDirection'),
+      signalConfidence: document.getElementById('signalConfidence'),
+      signalWindow: document.getElementById('signalWindow'),
+      signalSpread: document.getElementById('signalSpread'),
+      signalHorizon: document.getElementById('signalHorizon'),
+      signalRisk: document.getElementById('signalRisk'),
+      signalUpdated: document.getElementById('signalUpdated'),
+      signalDelta: document.getElementById('signalDelta'),
+      signalSummary: document.getElementById('signalSummary'),
+      healthSync: document.getElementById('healthSync'),
+      healthDrift: document.getElementById('healthDrift'),
+      healthError: document.getElementById('healthError'),
+      healthTransport: document.getElementById('healthTransport'),
+      navLinks: Array.from(document.querySelectorAll('.topnav nav a[data-target]')),
+      workbenchSection: document.getElementById('workbenchSection'),
+      runsSection: document.getElementById('runsSection'),
+      signalsSection: document.getElementById('signalsSection'),
+      logsSection: document.getElementById('logsSection'),
+    };
 
-      const nodes = {
-        watchlist: document.getElementById('watchlist'),
-        sessionFeed: document.getElementById('sessionFeed'),
-        spotPrice: document.getElementById('spotPrice'),
-        spotPair: document.getElementById('spotPair'),
-        pair: document.getElementById('pair'),
-        timeframe: document.getElementById('timeframe'),
-        history: document.getElementById('history'),
-        model: document.getElementById('model'),
-        exchange: document.getElementById('exchange'),
-        refreshButton: document.getElementById('refreshButton'),
-        runButton: document.getElementById('runButton'),
-        metricBar: document.getElementById('metricBar'),
-        candlesSvg: document.getElementById('candlesSvg'),
-        volumeSvg: document.getElementById('volumeSvg'),
-        axisStrip: document.getElementById('axisStrip'),
-        priceScale: document.getElementById('priceScale'),
-        forecastWindow: document.getElementById('forecastWindow'),
-        projectedMove: document.getElementById('projectedMove'),
-        expectedVol: document.getElementById('expectedVol'),
-        runLatency: document.getElementById('runLatency'),
-        resultsBody: document.getElementById('resultsBody'),
-        logFeed: document.getElementById('logFeed'),
-        signalPair: document.getElementById('signalPair'),
-        signalDirection: document.getElementById('signalDirection'),
-        signalConfidence: document.getElementById('signalConfidence'),
-        signalWindow: document.getElementById('signalWindow'),
-        signalSpread: document.getElementById('signalSpread'),
-        signalHorizon: document.getElementById('signalHorizon'),
-        signalRisk: document.getElementById('signalRisk'),
-        signalUpdated: document.getElementById('signalUpdated'),
-        signalDelta: document.getElementById('signalDelta'),
-        signalSummary: document.getElementById('signalSummary'),
-        healthSync: document.getElementById('healthSync'),
-        healthDrift: document.getElementById('healthDrift'),
-        healthError: document.getElementById('healthError'),
-        healthTransport: document.getElementById('healthTransport')
-      };
+    const hasNumber = (v) => typeof v === 'number' && Number.isFinite(v);
+    const formatPrice = (v) => hasNumber(v) ? ('$' + Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) : '-';
+    const formatPct = (v) => hasNumber(v) ? ((v >= 0 ? '+' : '') + Number(v).toFixed(2) + '%') : '-';
+    const formatCompactCurrency = (v) => hasNumber(v) ? ('$' + new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(Number(v))) : '-';
+    const formatNum = (v, d = 2) => hasNumber(v) ? Number(v).toFixed(d) : '-';
+    const toneClass = (v) => v > 0 ? 'trend-positive' : v < 0 ? 'trend-negative' : '';
+    const signalToneClass = (d) => d === 'bullish' ? 'trend-positive' : d === 'bearish' ? 'trend-negative' : '';
 
-      const formatPrice = (value) => '$' + value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      const formatPct = (value) => (value >= 0 ? '+' : '') + value.toFixed(2) + '%';
-      const formatCompactCurrency = (value) => '$' + new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(value);
-      const formatTime = (date) => date.toISOString().slice(11, 19) + 'Z';
-      const formatDateTime = (date) => date.toISOString().slice(0, 16).replace('T', ' ');
-      const toneClass = (value) => value > 0 ? 'trend-positive' : value < 0 ? 'trend-negative' : '';
-      const signalToneClass = (direction) => direction === 'bullish' ? 'trend-positive' : direction === 'bearish' ? 'trend-negative' : '';
+    let chart = null;
+    let searchTimer = null;
+    let latestSuggestions = [];
 
-      function patchState(target, source) {
-        Object.entries(source).forEach(([key, value]) => {
-          if (value && typeof value === 'object' && !Array.isArray(value)) {
-            if (!target[key] || typeof target[key] !== 'object' || Array.isArray(target[key])) {
-              target[key] = {};
+    function nowTs() {
+      return new Date().toISOString().slice(11, 19) + 'Z';
+    }
+
+    function addTerminalLog(level, msg) {
+      state.terminalLogs.push({ ts: nowTs(), level, msg: String(msg || '') });
+      if (state.terminalLogs.length > 300) state.terminalLogs = state.terminalLogs.slice(-300);
+      renderTerminal();
+    }
+
+    function renderTerminal() {
+      nodes.terminalStatus.textContent = state.ui.isRunning ? 'running' : 'idle';
+      nodes.terminalBody.innerHTML = state.terminalLogs.map((line) => `
+        <div class="term-line">
+          <span class="ts">${line.ts}</span>
+          <span class="lv-${line.level}">${line.level.toUpperCase()}</span>
+          <span class="msg">${line.msg}</span>
+        </div>
+      `).join('');
+      nodes.terminalBody.scrollTop = nodes.terminalBody.scrollHeight;
+      nodes.llmTerminal.classList.toggle('open', !!state.ui.terminalOpen);
+      nodes.terminalToggle.classList.toggle('active', !!state.ui.terminalOpen);
+    }
+
+    function syncControlsFromInputs() {
+      state.controls.pair = (nodes.pair.value || 'BTC/USDT').trim().toUpperCase();
+      state.controls.timeframe = nodes.timeframe.value;
+      state.controls.history = nodes.history.value;
+      state.controls.model = nodes.model.value;
+      state.controls.exchange = nodes.exchange.value;
+      state.controls.horizonHours = Number(nodes.horizonHours.value || 24);
+    }
+
+    function horizonStepsFromControls() {
+      const secondsByTf = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400 };
+      const tfSeconds = secondsByTf[state.controls.timeframe] || 3600;
+      const horizonSeconds = Math.max(1, state.controls.horizonHours) * 3600;
+      const steps = Math.round(horizonSeconds / tfSeconds);
+      return Math.max(4, Math.min(120, steps));
+    }
+
+    function ensureChart() {
+      if (!chart) {
+        const container = document.getElementById('tvChart');
+        chart = echarts.init(container, null, { renderer: 'canvas' });
+        window.addEventListener('resize', () => chart && chart.resize());
+      }
+      return chart;
+    }
+
+    function chartPresetToPoints(preset, timeframe, histCount) {
+      const tfToMinutes = { '1m': 1, '5m': 5, '15m': 15, '1h': 60, '4h': 240, '1d': 1440 };
+      const tfMinutes = tfToMinutes[timeframe] || 60;
+      if (preset === 'all') return histCount;
+      if (preset === '1d') return Math.max(8, Math.ceil((24 * 60) / tfMinutes));
+      if (preset === '7d') return Math.max(12, Math.ceil((7 * 24 * 60) / tfMinutes));
+      if (preset === '15d') return Math.max(18, Math.ceil((15 * 24 * 60) / tfMinutes));
+      if (preset === '30d') return Math.max(24, Math.ceil((30 * 24 * 60) / tfMinutes));
+      if (preset === '90d') return Math.max(24, Math.ceil((90 * 24 * 60) / tfMinutes));
+      return histCount;
+    }
+
+    function applyChartPreset(preset) {
+      state.ui.chartPreset = preset;
+      nodes.chartPresetButtons.forEach((btn) => {
+        btn.classList.toggle('active', btn.getAttribute('data-chart-preset') === preset);
+      });
+      renderChart();
+    }
+
+    function renderChart() {
+      const c = ensureChart();
+      const candles = state.forecast.candles || [];
+      const projection = state.forecast.projection || [];
+      if (!candles.length) {
+        c.clear();
+        return;
+      }
+      const histLabels = candles.map((x) => new Date(x.timestamp).toISOString().slice(0, 16).replace('T', ' '));
+      const predLabels = projection.map((x) => new Date(x.timestamp).toISOString().slice(0, 16).replace('T', ' '));
+      const labels = histLabels.concat(predLabels);
+      const histN = candles.length;
+      const predN = projection.length;
+      const totalN = histN + predN;
+
+      const histPrice = new Array(totalN).fill(null);
+      const forecastMean = new Array(totalN).fill(null);
+      const forecastUpper = new Array(totalN).fill(null);
+      const forecastLower = new Array(totalN).fill(null);
+      const bandLower = new Array(totalN).fill(null);
+      const bandRange = new Array(totalN).fill(null);
+
+      const histVol = new Array(totalN).fill(null);
+      const forecastVol = new Array(totalN).fill(null);
+
+      for (let i = 0; i < histN; i += 1) {
+        histPrice[i] = Number(candles[i].close);
+        histVol[i] = Number(candles[i].volume || 0);
+      }
+
+      const meanForecastVolume = hasNumber(state.analytics.mean_forecasted_volume)
+        ? Number(state.analytics.mean_forecasted_volume)
+        : null;
+
+      for (let i = 0; i < predN; i += 1) {
+        const idx = histN + i;
+        const p = projection[i];
+        const low = Number(p.lower);
+        const high = Number(p.upper);
+        const mean = Number(p.close);
+        forecastMean[idx] = mean;
+        forecastUpper[idx] = high;
+        forecastLower[idx] = low;
+        bandLower[idx] = low;
+        bandRange[idx] = high - low;
+        const v = hasNumber(Number(p.volume)) ? Number(p.volume) : meanForecastVolume;
+        forecastVol[idx] = v;
+      }
+
+      const splitLabel = histLabels[histN - 1];
+
+      const visibleHistPoints = chartPresetToPoints(state.ui.chartPreset, state.controls.timeframe, histN);
+      const totalVisiblePoints = Math.min(totalN, visibleHistPoints + predN);
+      const startIndex = Math.max(0, totalN - totalVisiblePoints);
+      const endIndex = Math.max(startIndex, totalN - 1);
+
+      c.setOption({
+        backgroundColor: 'transparent',
+        animation: false,
+        tooltip: { trigger: 'axis' },
+        legend: {
+          top: 6,
+          textStyle: { color: '#cbd5e1' },
+          data: ['Historical Price', 'Mean Forecast', 'Forecast Range (Min-Max)', 'Historical Volume', 'Mean Forecasted Volume']
+        },
+        dataZoom: [
+          { type: 'inside', xAxisIndex: [0, 1], zoomOnMouseWheel: true, moveOnMouseMove: true, moveOnMouseWheel: true, startValue: startIndex, endValue: endIndex },
+          { type: 'slider', xAxisIndex: [0, 1], bottom: 4, height: 14, borderColor: '#2a2a31', textStyle: { color: '#a1a1aa' }, startValue: startIndex, endValue: endIndex }
+        ],
+        grid: [
+          { left: 54, right: 16, top: 40, height: '52%' },
+          { left: 54, right: 16, top: '72%', height: '17%' }
+        ],
+        xAxis: [
+          {
+            type: 'category',
+            data: labels,
+            axisLine: { lineStyle: { color: '#3a3a44' } },
+            axisLabel: { color: '#a1a1aa', fontSize: 10, rotate: 20 },
+            splitLine: { show: true, lineStyle: { color: '#23232b' } },
+          },
+          {
+            type: 'category',
+            data: labels,
+            gridIndex: 1,
+            axisLine: { lineStyle: { color: '#3a3a44' } },
+            axisLabel: { color: '#a1a1aa', fontSize: 10, rotate: 20 },
+            splitLine: { show: true, lineStyle: { color: '#23232b' } },
+          }
+        ],
+        yAxis: [
+          {
+            type: 'value',
+            scale: true,
+            name: 'Price',
+            nameTextStyle: { color: '#a1a1aa' },
+            axisLine: { lineStyle: { color: '#3a3a44' } },
+            splitLine: { lineStyle: { color: '#23232b' } },
+            axisLabel: { color: '#a1a1aa' },
+          },
+          {
+            type: 'value',
+            gridIndex: 1,
+            name: 'Volume',
+            nameTextStyle: { color: '#a1a1aa' },
+            axisLine: { lineStyle: { color: '#3a3a44' } },
+            splitLine: { lineStyle: { color: '#23232b' } },
+            axisLabel: { color: '#a1a1aa' },
+          }
+        ],
+        series: [
+          {
+            name: 'Historical Price',
+            type: 'line',
+            data: histPrice,
+            yAxisIndex: 0,
+            symbol: 'none',
+            lineStyle: { width: 1.8, color: '#7ea2ff' }
+          },
+          {
+            name: 'Forecast Lower',
+            type: 'line',
+            data: bandLower,
+            yAxisIndex: 0,
+            symbol: 'none',
+            lineStyle: { opacity: 0 },
+            stack: 'forecastBand'
+          },
+          {
+            name: 'Forecast Range (Min-Max)',
+            type: 'line',
+            data: bandRange,
+            yAxisIndex: 0,
+            symbol: 'none',
+            lineStyle: { opacity: 0 },
+            areaStyle: { color: 'rgba(235, 171, 67, 0.22)' },
+            stack: 'forecastBand'
+          },
+          {
+            name: 'Mean Forecast',
+            type: 'line',
+            data: forecastMean,
+            yAxisIndex: 0,
+            symbol: 'none',
+            lineStyle: { width: 2, color: '#f0b35b' },
+            markLine: {
+              symbol: 'none',
+              label: { show: false },
+              lineStyle: { type: 'dashed', color: '#d86a6a', width: 1.2 },
+              data: [{ xAxis: splitLabel }]
             }
-            patchState(target[key], value);
-          } else {
-            target[key] = value;
+          },
+          {
+            name: 'Historical Volume',
+            type: 'bar',
+            data: histVol,
+            xAxisIndex: 1,
+            yAxisIndex: 1,
+            itemStyle: { color: 'rgba(98, 188, 226, 0.55)' }
+          },
+          {
+            name: 'Mean Forecasted Volume',
+            type: 'bar',
+            data: forecastVol,
+            xAxisIndex: 1,
+            yAxisIndex: 1,
+            itemStyle: { color: 'rgba(230, 151, 74, 0.75)' }
           }
-        });
+        ]
+      }, true);
+    }
+
+    async function searchAssets(query) {
+      const q = (query || '').trim();
+      if (q.length < 2) {
+        latestSuggestions = [];
+        nodes.pairSuggestions.innerHTML = '';
+        nodes.pairSuggestions.classList.remove('open');
+        return;
+      }
+      const response = await fetch('/api/search?q=' + encodeURIComponent(q));
+      const data = await response.json().catch(() => ({ items: [] }));
+      if (!response.ok) return;
+      latestSuggestions = (data.items || []).slice(0, 10);
+      nodes.pairSuggestions.innerHTML = latestSuggestions.map((item, idx) => {
+        const symbol = String(item.symbol || '');
+        const rawName = String(item.name || '').trim();
+        const norm = (s) => s.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const name = rawName && norm(rawName) !== norm(symbol) ? rawName.slice(0, 28) : '';
+        const exch = String(item.exchange || '');
+        const text = `${symbol}${name ? ` · ${name}` : ''}${exch ? ` · ${exch}` : ''}`;
+        return `<button type="button" class="suggestion-item" data-sidx="${idx}" title="${text}">${text}</button>`;
+      }).join('');
+      if (latestSuggestions.length) nodes.pairSuggestions.classList.add('open');
+      else nodes.pairSuggestions.classList.remove('open');
+    }
+
+    async function requestForecast() {
+      const body = {
+        pair: state.controls.pair,
+        timeframe: state.controls.timeframe,
+        history: state.controls.history,
+        model: state.controls.model,
+        exchange: state.controls.exchange,
+        horizon_steps: horizonStepsFromControls()
+      };
+      addTerminalLog('step', `prepare payload pair=${body.pair} tf=${body.timeframe} model=${body.model} ex=${body.exchange} h=${body.horizon_steps}`);
+      const t0 = performance.now();
+      const response = await fetch('/api/forecast/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.detail || ('HTTP ' + response.status));
       }
 
-      function setState(nextState) {
-        patchState(state, nextState);
-        renderAll();
+      if (!response.body || !response.body.getReader) {
+        throw new Error('Streaming not available in this browser/runtime');
       }
 
-      function generateCandles(count) {
-        const candles = [];
-        let price = 64000 + Math.random() * 1200;
-        const now = new Date();
-        for (let index = 0; index < count; index += 1) {
-          const open = price;
-          const drift = (Math.random() - 0.45) * 620;
-          const close = open + drift;
-          const high = Math.max(open, close) + 80 + Math.random() * 280;
-          const low = Math.min(open, close) - 80 - Math.random() * 260;
-          const volume = 180000 + Math.random() * 820000;
-          const timestamp = new Date(now.getTime() - (count - index) * 60 * 60 * 1000);
-          candles.push({ open, high, low, close, volume, timestamp });
-          price = close;
-        }
-        return candles;
-      }
-
-      function createMockPayload(controls) {
-        const candles = generateCandles(36);
-        const lastClose = candles[candles.length - 1].close;
-        const projection = [];
-        let cursor = lastClose;
-
-        for (let step = 1; step <= 12; step += 1) {
-          cursor += (Math.random() - 0.38) * 320;
-          const spread = 180 + Math.random() * 220;
-          projection.push({
-            close: cursor,
-            upper: cursor + spread,
-            lower: cursor - spread,
-            timestamp: new Date(candles[candles.length - 1].timestamp.getTime() + step * 60 * 60 * 1000)
-          });
-        }
-
-        const projectedMovePct = ((projection[projection.length - 1].close - lastClose) / lastClose) * 100;
-        const change24h = (Math.random() - 0.42) * 5.8;
-        const confidencePct = Math.round(68 + Math.random() * 24);
-        const volatility = 2.2 + Math.random() * 2.7;
-        const direction = projectedMovePct > 1 ? 'bullish' : projectedMovePct < -1 ? 'bearish' : 'neutral';
-        const risk = Math.abs(projectedMovePct) > 2.8 ? 'high' : Math.abs(projectedMovePct) > 1.2 ? 'medium' : 'low';
-        const latencyMs = Math.round(280 + Math.random() * 210);
-        const forecastWindowLabel = controls.horizon + ' / ' + projection.length + ' steps';
-
-        return {
-          market: {
-            price: lastClose,
-            change24h,
-            volume24h: 18000000000 + Math.random() * 26000000000,
-            volatility,
-            confidence: confidencePct
-          },
-          forecast: {
-            latencyMs,
-            projectedMovePct,
-            expectedVolPct: volatility,
-            candles,
-            projection,
-            forecastWindowLabel
-          },
-          signal: {
-            direction,
-            confidencePct,
-            spreadPct: 0.82 + Math.random() * 1.2,
-            horizon: controls.horizon,
-            risk,
-            updatedAt: formatTime(new Date()),
-            summary: direction === 'bullish'
-              ? 'Continuation above local midpoint remains favored if spot volume stays above six-hour median.'
-              : direction === 'bearish'
-                ? 'Downside continuation remains in play if the next candle loses intraday VWAP and volume expands.'
-                : 'Range conditions persist; conviction is insufficient for directional allocation without a liquidity break.'
-          },
-          watchlist: [
-            { pair: 'BTC/USDT', venue: 'Binance · 1h', move: 0.8 + Math.random() * 3.2 },
-            { pair: 'ETH/USDT', venue: 'Coinbase · 4h', move: -1 + Math.random() * 2.3 },
-            { pair: 'SOL/USDT', venue: 'Bybit · 15m', move: -3 + Math.random() * 2.7 },
-            { pair: 'ARB/USDT', venue: 'Binance · 1h', move: -1.3 + Math.random() * 2.1 },
-            { pair: 'AVAX/USDT', venue: 'Kraken · 4h', move: -2.1 + Math.random() * 4.2 },
-            { pair: 'DOGE/USDT', venue: 'Binance · 5m', move: -0.7 + Math.random() * 2.4 }
-          ],
-          runs: Array.from({ length: 8 }, (_, index) => {
-            const timestamp = new Date(Date.now() - index * 54 * 60 * 1000);
-            const prediction = index % 3 === 0 ? 'bullish' : index % 3 === 1 ? 'neutral' : 'bearish';
-            return {
-              timestamp: formatDateTime(timestamp),
-              pair: controls.pair,
-              model: controls.model,
-              prediction,
-              confidence: (64 + Math.random() * 26).toFixed(1) + '%',
-              error: (0.42 + Math.random() * 1.96).toFixed(2) + '%'
-            };
-          }),
-          logs: [
-            { time: formatTime(new Date(Date.now() - 5 * 60000)), level: 'info', title: 'Market snapshot ingested', detail: 'Received 36 candles from ' + controls.exchange + ' for ' + controls.pair + '.' },
-            { time: formatTime(new Date(Date.now() - 3 * 60000)), level: 'info', title: 'Feature window normalized', detail: 'Scaled price, spread and volume features for ' + controls.timeframe + ' inference.' },
-            { time: formatTime(new Date(Date.now() - 2 * 60000)), level: risk === 'high' ? 'warning' : 'info', title: 'Confidence band generated', detail: 'Computed P10/P90 interval for horizon ' + controls.horizon + '.' },
-            { time: formatTime(new Date(Date.now() - 60000)), level: 'info', title: 'Forecast persisted', detail: 'Stored run metadata for audit replay and model comparison.' }
-          ],
-          health: {
-            sync: 'ok',
-            drift: risk === 'high' ? 'watch' : 'stable',
-            lastError: 'none',
-            transport: 'ws://market-feed'
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let finalPayload = null;
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          let evt = null;
+          try {
+            evt = JSON.parse(line);
+          } catch (_) {
+            continue;
           }
-        };
-      }
-
-      function syncControlsFromInputs() {
-        state.controls.pair = nodes.pair.value.trim().toUpperCase() || 'BTC/USDT';
-        state.controls.timeframe = nodes.timeframe.value;
-        state.controls.history = nodes.history.value;
-        state.controls.model = nodes.model.value;
-        state.controls.exchange = nodes.exchange.value;
-      }
-
-      function normalizeApiPayload(payload) {
-        const normalized = structuredClone(payload);
-        if (normalized.forecast && Array.isArray(normalized.forecast.candles)) {
-          normalized.forecast.candles = normalized.forecast.candles.map((item) => ({
-            ...item,
-            timestamp: new Date(item.timestamp)
-          }));
+          if (evt.type === 'progress') {
+            const pct = typeof evt.percent === 'number' ? `${evt.percent}% ` : '';
+            addTerminalLog('step', `${pct}${evt.message}`);
+          } else if (evt.type === 'error') {
+            throw new Error(evt.message || `HTTP ${evt.status || 500}`);
+          } else if (evt.type === 'result') {
+            finalPayload = evt.payload || null;
+          }
         }
-        if (normalized.forecast && Array.isArray(normalized.forecast.projection)) {
-          normalized.forecast.projection = normalized.forecast.projection.map((item) => ({
-            ...item,
-            timestamp: new Date(item.timestamp)
-          }));
-        }
-        return normalized;
       }
+      const data = finalPayload || {};
+      if (!data || !data.forecast) throw new Error('Empty streaming result from backend');
+      const elapsed = Math.round(performance.now() - t0);
+      addTerminalLog('info', `backend response ok (${response.status}) in ${elapsed}ms`);
+      return data;
+    }
 
-      async function requestForecast() {
-        const body = {
-          pair: state.controls.pair,
-          timeframe: state.controls.timeframe,
-          history: state.controls.history,
-          model: state.controls.model,
-          exchange: state.controls.exchange,
-          horizon_steps: 12
-        };
-        const response = await fetch('/api/forecast', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
-        });
-        if (!response.ok) {
-          const err = await response.json().catch(() => ({}));
-          const message = err.detail || ('HTTP ' + response.status);
-          throw new Error(message);
-        }
-        const payload = await response.json();
-        return normalizeApiPayload(payload);
+    function renderToolbar() {
+      nodes.spotPrice.textContent = formatPrice(state.market.price);
+      nodes.spotPair.textContent = state.controls.pair;
+      nodes.runButton.disabled = state.ui.isRunning;
+      nodes.refreshButton.disabled = state.ui.isRunning;
+      nodes.runButton.textContent = state.ui.isRunning ? 'Running…' : 'Run Forecast';
+    }
+
+    function renderMetrics() {
+      const metrics = [
+        { label: '24h change', value: formatPct(state.market.change24h), tone: state.market.change24h, foot: 'rolling delta' },
+        { label: '24h volume', value: formatCompactCurrency(state.market.volume24h), tone: 0, foot: 'aggregated' },
+        { label: 'volatility', value: hasNumber(state.market.volatility) ? Number(state.market.volatility).toFixed(2) + '%' : '-', tone: 0, foot: 'realized sigma' },
+        { label: 'confidence', value: hasNumber(state.market.confidence) ? Number(state.market.confidence).toFixed(0) + '%' : '-', tone: state.signal.direction === 'bullish' ? 1 : state.signal.direction === 'bearish' ? -1 : 0, foot: state.signal.direction || '-' }
+      ];
+      nodes.metricBar.innerHTML = metrics.map((m) => `
+        <article class="metric">
+          <span class="meta">${m.label}</span>
+          <strong class="metric-value num ${toneClass(m.tone)}">${m.value}</strong>
+          <div class="metric-foot"><span class="meta">${m.foot}</span></div>
+        </article>
+      `).join('');
+    }
+
+    function renderWatchlist() {
+      if (!(state.watchlist || []).length) {
+        nodes.watchlist.innerHTML = `<div class="meta">No real-time watchlist data</div>`;
+        return;
       }
-
-      function renderToolbar() {
-        nodes.spotPrice.textContent = formatPrice(state.market.price);
-        nodes.spotPair.textContent = state.controls.pair;
-        nodes.runButton.disabled = state.ui.isRunning;
-        nodes.refreshButton.disabled = state.ui.isRunning;
-        nodes.runButton.textContent = state.ui.isRunning ? 'Running…' : 'Run Forecast';
-      }
-
-      function renderMetrics() {
-        const metrics = [
-          { label: '24h change', value: formatPct(state.market.change24h), tone: state.market.change24h, foot: 'rolling delta' },
-          { label: '24h volume', value: formatCompactCurrency(state.market.volume24h), tone: 0, foot: 'aggregated' },
-          { label: 'volatility', value: state.market.volatility.toFixed(2) + '%', tone: 0, foot: 'realized sigma' },
-          { label: 'confidence', value: state.market.confidence.toFixed(0) + '%', tone: state.signal.direction === 'bullish' ? 1 : state.signal.direction === 'bearish' ? -1 : 0, foot: state.signal.direction }
-        ];
-
-        nodes.metricBar.innerHTML = metrics.map((metric) => `
-          <article class="metric">
-            <span class="meta">${metric.label}</span>
-            <strong class="metric-value num ${toneClass(metric.tone)}">${metric.value}</strong>
-            <div class="metric-foot">
-              <span class="meta">${metric.foot}</span>
-            </div>
-          </article>
-        `).join('');
-      }
-
-      function renderWatchlist() {
-        nodes.watchlist.innerHTML = state.watchlist.map((item) => `
-          <div class="watch-row">
-            <div class="watch-main">
-              <strong>${item.pair}</strong>
-              <span class="meta">${item.venue}</span>
-            </div>
-            <span class="num ${toneClass(item.move)}">${item.move >= 0 ? '+' : ''}${item.move.toFixed(2)}%</span>
+      nodes.watchlist.innerHTML = state.watchlist.map((item) => `
+        <div class="watch-row">
+          <div class="watch-main">
+            <strong>${item.pair}</strong>
+            <span class="meta">${item.venue}</span>
           </div>
-        `).join('');
+          <span class="num ${toneClass(item.move)}">${item.move >= 0 ? '+' : ''}${Number(item.move).toFixed(2)}%</span>
+        </div>
+      `).join('');
+    }
+
+    function renderSignal() {
+      nodes.signalPair.textContent = state.controls.pair;
+      nodes.signalDirection.textContent = state.signal.direction || '-';
+      nodes.signalDirection.className = 'num ' + signalToneClass(state.signal.direction);
+      nodes.signalConfidence.textContent = hasNumber(state.signal.confidencePct) ? (Number(state.signal.confidencePct).toFixed(0) + '%') : '-';
+      nodes.signalConfidence.className = 'num ' + signalToneClass(state.signal.direction);
+      nodes.signalWindow.textContent = state.forecast.forecastWindowLabel || '-';
+      nodes.signalSpread.textContent = hasNumber(state.signal.spreadPct) ? (Number(state.signal.spreadPct).toFixed(2) + '%') : '-';
+      nodes.signalHorizon.textContent = state.signal.horizon || '-';
+      nodes.signalRisk.textContent = state.signal.risk || '-';
+      nodes.signalRisk.className = 'num ' + (state.signal.risk === 'high' ? 'trend-negative' : state.signal.risk === 'medium' ? 'trend-warning' : 'trend-positive');
+      nodes.signalUpdated.textContent = state.signal.updatedAt || '-';
+      nodes.signalDelta.textContent = formatPct(state.market.change24h);
+      nodes.signalDelta.className = 'num ' + toneClass(state.market.change24h);
+      nodes.signalSummary.textContent = state.signal.summary || 'No prediction yet.';
+    }
+
+    function renderHealth() {
+      nodes.sessionFeed.textContent = state.ui.isRunning ? 'updating' : 'live';
+      nodes.healthSync.textContent = state.health.sync || '-';
+      nodes.healthDrift.textContent = state.health.drift || '-';
+      nodes.healthDrift.className = 'num ' + (state.health.drift === 'watch' ? 'trend-warning' : '');
+      nodes.healthError.textContent = state.health.lastError || 'none';
+      nodes.healthError.className = 'num ' + (state.health.lastError && state.health.lastError !== 'none' ? 'trend-negative' : '');
+      nodes.healthTransport.textContent = state.health.transport || 'api://kronos';
+    }
+
+    function renderRuns() {
+      if (!(state.runs || []).length) {
+        nodes.resultsBody.innerHTML = `<tr><td colspan="6" class="meta">No real run history stored yet.</td></tr>`;
+        return;
       }
+      nodes.resultsBody.innerHTML = state.runs.map((row) => `
+        <tr>
+          <td class="num">${row.timestamp}</td>
+          <td class="num">${row.pair}</td>
+          <td>${row.model}</td>
+          <td class="${signalToneClass(row.prediction)}">${row.prediction}</td>
+          <td class="num-col">${row.confidence}</td>
+          <td class="num-col">${row.error}</td>
+        </tr>
+      `).join('');
+    }
 
-      function renderSignal() {
-        nodes.signalPair.textContent = state.controls.pair;
-        nodes.signalDirection.textContent = state.signal.direction;
-        nodes.signalDirection.className = 'num ' + signalToneClass(state.signal.direction);
-        nodes.signalConfidence.textContent = state.signal.confidencePct.toFixed(0) + '%';
-        nodes.signalConfidence.className = 'num ' + signalToneClass(state.signal.direction);
-        nodes.signalWindow.textContent = state.forecast.forecastWindowLabel;
-        nodes.signalSpread.textContent = state.signal.spreadPct.toFixed(2) + '%';
-        nodes.signalHorizon.textContent = state.signal.horizon;
-        nodes.signalRisk.textContent = state.signal.risk;
-        nodes.signalRisk.className = 'num ' + (state.signal.risk === 'high' ? 'trend-negative' : state.signal.risk === 'medium' ? 'trend-warning' : 'trend-positive');
-        nodes.signalUpdated.textContent = state.signal.updatedAt;
-        nodes.signalDelta.textContent = formatPct(state.market.change24h);
-        nodes.signalDelta.className = 'num ' + toneClass(state.market.change24h);
-        nodes.signalSummary.textContent = state.signal.summary;
+    function renderLogs() {
+      if (!(state.logs || []).length) {
+        nodes.logFeed.innerHTML = `<article class="log-entry"><span class="meta">--:--:--Z</span><div><strong>No events yet</strong><span class="lead">Run a forecast to see backend events.</span></div></article>`;
+        return;
       }
+      nodes.logFeed.innerHTML = state.logs.map((entry) => `
+        <article class="log-entry">
+          <span class="meta ${entry.level === 'warning' ? 'trend-warning' : entry.level === 'error' ? 'trend-negative' : ''}">${entry.time}</span>
+          <div>
+            <strong class="${entry.level === 'warning' ? 'trend-warning' : entry.level === 'error' ? 'trend-negative' : ''}">${entry.title}</strong>
+            <span class="lead">${entry.detail}</span>
+          </div>
+        </article>
+      `).join('');
+    }
 
-      function renderHealth() {
-        nodes.sessionFeed.textContent = state.ui.isRunning ? 'updating' : 'streaming';
-        nodes.healthSync.textContent = state.health.sync;
-        nodes.healthDrift.textContent = state.health.drift;
-        nodes.healthDrift.className = 'num ' + (state.health.drift === 'watch' ? 'trend-warning' : '');
-        nodes.healthError.textContent = state.health.lastError;
-        nodes.healthError.className = 'num ' + (state.health.lastError === 'none' ? '' : 'trend-negative');
-        nodes.healthTransport.textContent = state.health.transport;
-      }
+    function renderForecastStats() {
+      nodes.forecastWindow.textContent = state.forecast.forecastWindowLabel || '-';
+      nodes.projectedMove.textContent = formatPct(state.forecast.projectedMovePct);
+      nodes.projectedMove.className = 'num ' + toneClass(state.forecast.projectedMovePct);
+      nodes.expectedVol.textContent = hasNumber(state.forecast.expectedVolPct) ? (Number(state.forecast.expectedVolPct).toFixed(2) + '%') : '-';
+      nodes.runLatency.textContent = hasNumber(state.forecast.latencyMs) ? (Number(state.forecast.latencyMs) + ' ms') : '-';
+    }
 
-      function renderRuns() {
-        nodes.resultsBody.innerHTML = state.runs.map((row) => `
-          <tr>
-            <td class="num">${row.timestamp}</td>
-            <td class="num">${row.pair}</td>
-            <td>${row.model}</td>
-            <td class="${signalToneClass(row.prediction)}">${row.prediction}</td>
-            <td class="num-col">${row.confidence}</td>
-            <td class="num-col">${row.error}</td>
-          </tr>
-        `).join('');
-      }
+    function renderAnalytics() {
+      const a = state.analytics || {};
+      const metrics = [
+        { label: 'forecast range min', value: formatPrice(a.forecast_range_min) },
+        { label: 'forecast range max', value: formatPrice(a.forecast_range_max) },
+        { label: 'mean forecast', value: formatPrice(a.mean_forecast) },
+        { label: 'historical price', value: formatPrice(a.historical_price) },
+        { label: 'historical volume mean', value: formatCompactCurrency(a.historical_volume_mean) },
+        { label: 'mean forecasted volume', value: formatCompactCurrency(a.mean_forecasted_volume) },
+        { label: 'upside probability (24h)', value: hasNumber(a.upside_probability_next_24h) ? `${formatNum(a.upside_probability_next_24h, 2)}%` : '-' },
+        { label: 'vol amplification (24h)', value: hasNumber(a.volatility_amplification_next_24h) ? `${formatNum(a.volatility_amplification_next_24h, 2)}x` : '-' },
+        { label: 'expected return (24h)', value: hasNumber(a.expected_return_next_24h) ? `${formatNum(a.expected_return_next_24h, 2)}%` : '-' },
+        { label: 'max drawdown (24h)', value: hasNumber(a.max_drawdown_next_24h) ? `${formatNum(a.max_drawdown_next_24h, 2)}%` : '-' },
+        { label: 'probabilistic samples', value: hasNumber(a.probabilistic_samples) ? String(Math.round(a.probabilistic_samples)) : '-' },
+      ];
+      nodes.analyticsStats.innerHTML = metrics.map((m) => `
+        <div class="chart-stat">
+          <span class="meta">${m.label}</span>
+          <strong class="num">${m.value}</strong>
+        </div>
+      `).join('');
+    }
 
-      function renderLogs() {
-        nodes.logFeed.innerHTML = state.logs.map((entry) => `
-          <article class="log-entry">
-            <span class="meta ${entry.level === 'warning' ? 'trend-warning' : entry.level === 'error' ? 'trend-negative' : ''}">${entry.time}</span>
-            <div>
-              <strong class="${entry.level === 'warning' ? 'trend-warning' : entry.level === 'error' ? 'trend-negative' : ''}">${entry.title}</strong>
-              <span class="lead">${entry.detail}</span>
-            </div>
-          </article>
-        `).join('');
-      }
+    function renderAll() {
+      renderToolbar();
+      renderMetrics();
+      renderWatchlist();
+      renderSignal();
+      renderHealth();
+      renderRuns();
+      renderLogs();
+      renderForecastStats();
+      renderAnalytics();
+    }
 
-      function pathFromPoints(points) {
-        return points.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x} ${point.y}`).join(' ');
-      }
+    function applyPayload(payload) {
+      state.market = payload.market || state.market;
+      state.forecast = payload.forecast || state.forecast;
+      state.signal = payload.signal || state.signal;
+      state.analytics = payload.analytics || {};
+      state.watchlist = payload.watchlist || [];
+      state.runs = payload.runs || [];
+      state.logs = payload.logs || [];
+      state.health = payload.health || state.health;
+      renderAll();
+      renderChart();
+      addTerminalLog('step', `market=${formatPrice(state.market.price)} move24h=${formatPct(state.market.change24h)} forecast=${formatPct(state.forecast.projectedMovePct)}`);
+      const backendLogs = Array.isArray(payload.logs) ? payload.logs : [];
+      backendLogs.forEach((entry) => {
+        const level = entry.level === 'warning' ? 'warn' : entry.level === 'error' ? 'error' : 'info';
+        addTerminalLog(level, `[backend] ${entry.title}: ${entry.detail}`);
+      });
+    }
 
-      function renderChart() {
-        const history = state.forecast.candles;
-        const projection = state.forecast.projection;
-        if (!history.length || !projection.length) return;
-
-        const allHighs = history.map((item) => item.high).concat(projection.map((item) => item.upper));
-        const allLows = history.map((item) => item.low).concat(projection.map((item) => item.lower));
-        const max = Math.max(...allHighs);
-        const min = Math.min(...allLows);
-        const width = 1080;
-        const height = 520;
-        const volumeHeight = 90;
-        const candleWidth = 10;
-        const totalPoints = history.length + projection.length;
-        const xStep = width / (totalPoints + 2);
-        const maxVolume = Math.max(...history.map((item) => item.volume));
-        const toY = (value) => height - ((value - min) / (max - min)) * (height - 24) - 12;
-
-        const guides = Array.from({ length: 6 }, (_, index) => {
-          const y = 12 + index * ((height - 24) / 5);
-          return `<line x1="0" y1="${y}" x2="${width}" y2="${y}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2 6"></line>`;
-        }).join('');
-
-        const candles = history.map((item, index) => {
-          const x = (index + 1) * xStep;
-          const openY = toY(item.open);
-          const closeY = toY(item.close);
-          const highY = toY(item.high);
-          const lowY = toY(item.low);
-          const bodyY = Math.min(openY, closeY);
-          const bodyHeight = Math.max(Math.abs(closeY - openY), 2);
-          const color = item.close >= item.open ? 'var(--good)' : 'var(--bad)';
-          return `
-            <line x1="${x}" y1="${highY}" x2="${x}" y2="${lowY}" stroke="${color}" stroke-width="1"></line>
-            <rect x="${x - candleWidth / 2}" y="${bodyY}" width="${candleWidth}" height="${bodyHeight}" fill="${color}"></rect>
-          `;
-        }).join('');
-
-        const forecastPoints = projection.map((item, index) => ({
-          x: (history.length + index + 1) * xStep,
-          y: toY(item.close)
-        }));
-        const upperPoints = projection.map((item, index) => ({
-          x: (history.length + index + 1) * xStep,
-          y: toY(item.upper)
-        }));
-        const lowerPoints = projection.map((item, index) => ({
-          x: (history.length + index + 1) * xStep,
-          y: toY(item.lower)
-        }));
-        const bandPath = pathFromPoints(upperPoints) + ' ' + lowerPoints.slice().reverse().map((point) => `L${point.x} ${point.y}`).join(' ') + ' Z';
-
-        nodes.candlesSvg.innerHTML = `
-          ${guides}
-          ${candles}
-          <path d="${bandPath}" fill="var(--accent-soft)" stroke="none"></path>
-          <path d="${pathFromPoints(forecastPoints)}" fill="none" stroke="var(--fg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
-          <line x1="${history.length * xStep + xStep / 2}" y1="0" x2="${history.length * xStep + xStep / 2}" y2="${height}" stroke="var(--border)" stroke-width="1"></line>
-        `;
-
-        nodes.volumeSvg.innerHTML = history.map((item, index) => {
-          const x = (index + 1) * xStep;
-          const barHeight = (item.volume / maxVolume) * (volumeHeight - 10);
-          return `<rect x="${x - 5}" y="${volumeHeight - barHeight}" width="10" height="${barHeight}" fill="var(--fg-soft)"></rect>`;
-        }).join('');
-
-        nodes.axisStrip.innerHTML = [
-          history[0].timestamp,
-          history[11].timestamp,
-          history[23].timestamp,
-          history[35].timestamp,
-          projection[projection.length - 1].timestamp
-        ].map((timestamp) => `<span>${timestamp.toISOString().slice(5, 10)}</span>`).join('');
-
-        nodes.priceScale.innerHTML = [
-          max,
-          max - (max - min) * 0.25,
-          max - (max - min) * 0.5,
-          max - (max - min) * 0.75,
-          min
-        ].map((value) => `<span>${value.toFixed(0)}</span>`).join('');
-
-        nodes.forecastWindow.textContent = state.forecast.forecastWindowLabel;
-        nodes.projectedMove.textContent = formatPct(state.forecast.projectedMovePct);
-        nodes.projectedMove.className = 'num ' + toneClass(state.forecast.projectedMovePct);
-        nodes.expectedVol.textContent = state.forecast.expectedVolPct.toFixed(2) + '%';
-        nodes.runLatency.textContent = state.forecast.latencyMs + ' ms';
-      }
-
-      function renderAll() {
-        renderToolbar();
-        renderMetrics();
-        renderWatchlist();
-        renderSignal();
-        renderHealth();
-        renderRuns();
-        renderLogs();
-        renderChart();
-      }
-
-      async function runForecast() {
-        syncControlsFromInputs();
-        setState({
-          ui: { isRunning: true },
-          logs: [
-            { time: formatTime(new Date()), level: 'info', title: 'Forecast queued', detail: 'Submitting run for ' + state.controls.pair + ' on ' + state.controls.exchange + '.' },
-            ...state.logs.slice(0, 3)
-          ]
-        });
-
-        try {
-          const payload = await requestForecast();
-          setState({
-            ui: { isRunning: false, lastRefreshAt: new Date().toISOString() },
-            market: payload.market,
-            forecast: payload.forecast,
-            signal: payload.signal,
-            watchlist: payload.watchlist,
-            runs: payload.runs,
-            logs: [
-              { time: formatTime(new Date()), level: 'info', title: 'Inference completed', detail: state.controls.model + ' produced a new forecast for ' + state.controls.pair + '.' },
-              ...payload.logs
-            ],
-            health: payload.health
-          });
-        } catch (error) {
-          const fallback = createMockPayload(state.controls);
-          setState({
-            ui: { isRunning: false, lastRefreshAt: new Date().toISOString() },
-            market: fallback.market,
-            forecast: fallback.forecast,
-            signal: fallback.signal,
-            watchlist: fallback.watchlist,
-            runs: fallback.runs,
-            logs: [
-              { time: formatTime(new Date()), level: 'error', title: 'Backend error', detail: String(error.message || error) },
-              ...fallback.logs
-            ],
-            health: { ...fallback.health, lastError: String(error.message || error) }
-          });
-        }
-      }
-
-      async function refreshFeed() {
-        syncControlsFromInputs();
-        try {
-          const payload = await requestForecast();
-          setState({
-            ui: { lastRefreshAt: new Date().toISOString() },
-            market: payload.market,
-            forecast: payload.forecast,
-            signal: payload.signal,
-            watchlist: payload.watchlist,
-            runs: payload.runs,
-            logs: [
-              { time: formatTime(new Date()), level: 'info', title: 'Feed refreshed', detail: 'Pulled latest market snapshot for ' + state.controls.pair + '.' },
-              ...payload.logs
-            ],
-            health: payload.health
-          });
-        } catch (error) {
-          const fallback = createMockPayload(state.controls);
-          setState({
-            ui: { lastRefreshAt: new Date().toISOString() },
-            market: fallback.market,
-            forecast: fallback.forecast,
-            signal: fallback.signal,
-            watchlist: fallback.watchlist,
-            runs: fallback.runs,
-            logs: [
-              { time: formatTime(new Date()), level: 'error', title: 'Backend error', detail: String(error.message || error) },
-              ...fallback.logs
-            ],
-            health: { ...fallback.health, lastError: String(error.message || error) }
-          });
-        }
-      }
-
-      function hydrateInitialState() {
-        const payload = createMockPayload(state.controls);
-        patchState(state, {
-          market: payload.market,
-          forecast: payload.forecast,
-          signal: payload.signal,
-          watchlist: payload.watchlist,
-          runs: payload.runs,
-          logs: payload.logs,
-          health: payload.health
-        });
-      }
-
-      function bindEvents() {
-        nodes.refreshButton.addEventListener('click', refreshFeed);
-        nodes.runButton.addEventListener('click', runForecast);
-        [nodes.timeframe, nodes.history, nodes.model, nodes.exchange].forEach((node) => {
-          node.addEventListener('change', syncControlsFromInputs);
-        });
-        nodes.pair.addEventListener('change', syncControlsFromInputs);
-      }
-
-      function init() {
-        hydrateInitialState();
-        bindEvents();
+    async function runForecast() {
+      syncControlsFromInputs();
+      state.ui.isRunning = true;
+      state.ui.terminalOpen = true;
+      renderTerminal();
+      renderToolbar();
+      addTerminalLog('step', 'run forecast started');
+      try {
+        const payload = await requestForecast();
+        applyPayload(payload);
+        addTerminalLog('info', `signal=${payload?.signal?.direction || '-'} confidence=${payload?.signal?.confidencePct ?? '-'}% risk=${payload?.signal?.risk || '-'}`);
+      } catch (error) {
+        state.logs = [{ time: new Date().toISOString().slice(11, 19) + 'Z', level: 'error', title: 'Forecast error', detail: String(error.message || error) }];
+        state.health.lastError = String(error.message || error);
+        state.ui.isRunning = false;
+        addTerminalLog('error', `forecast failed: ${String(error.message || error)}`);
         renderAll();
+      } finally {
+        state.ui.isRunning = false;
+        renderToolbar();
+        renderHealth();
+        addTerminalLog('step', 'run forecast finished');
       }
+    }
 
-      return { init, setState, state };
-    })();
+    async function refreshFeed() {
+      await runForecast();
+    }
 
-    app.init();
+    async function handleControlChange() {
+      syncControlsFromInputs();
+      if (state.controls.history !== 'custom') {
+        applyChartPreset(state.controls.history);
+      }
+      renderToolbar();
+    }
+
+    function bindEvents() {
+      nodes.refreshButton.addEventListener('click', refreshFeed);
+      nodes.runButton.addEventListener('click', runForecast);
+      [nodes.timeframe, nodes.history, nodes.model, nodes.exchange, nodes.horizonHours, nodes.pair].forEach((node) => {
+        node.addEventListener('change', handleControlChange);
+      });
+      nodes.pair.addEventListener('input', () => {
+        if (searchTimer) clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => searchAssets(nodes.pair.value), 250);
+      });
+      nodes.pair.addEventListener('focus', () => {
+        if (latestSuggestions.length) nodes.pairSuggestions.classList.add('open');
+      });
+      nodes.pairSuggestions.addEventListener('click', (ev) => {
+        const target = ev.target.closest('[data-sidx]');
+        if (!target) return;
+        const item = latestSuggestions[Number(target.getAttribute('data-sidx'))];
+        if (!item) return;
+        nodes.pair.value = String(item.symbol || '').toUpperCase();
+        nodes.pairSuggestions.classList.remove('open');
+        syncControlsFromInputs();
+      });
+      document.addEventListener('click', (ev) => {
+        if (ev.target === nodes.pair || nodes.pairSuggestions.contains(ev.target)) return;
+        nodes.pairSuggestions.classList.remove('open');
+      });
+
+      nodes.navLinks.forEach((link) => {
+        link.addEventListener('click', (ev) => {
+          ev.preventDefault();
+          const target = link.getAttribute('data-target');
+          nodes.navLinks.forEach((l) => l.classList.remove('active'));
+          link.classList.add('active');
+          let el = nodes.workbenchSection;
+          if (target === 'runs') el = nodes.runsSection;
+          if (target === 'signals') el = nodes.signalsSection;
+          if (target === 'logs') el = nodes.logsSection;
+          if (target === 'datasets') el = nodes.analyticsStats;
+          if (el && typeof el.scrollIntoView === 'function') {
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        });
+      });
+
+      nodes.chartPresetButtons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const preset = btn.getAttribute('data-chart-preset');
+          if (!preset) return;
+          applyChartPreset(preset);
+          if (['7d', '15d', '30d', '90d'].includes(preset)) {
+            nodes.history.value = preset;
+          } else if (preset === '1d') {
+            nodes.history.value = 'custom';
+          }
+          syncControlsFromInputs();
+        });
+      });
+
+      nodes.chartReset.addEventListener('click', () => {
+        applyChartPreset(state.controls.history === 'custom' ? '30d' : state.controls.history);
+      });
+
+      nodes.terminalToggle.addEventListener('click', () => {
+        state.ui.terminalOpen = !state.ui.terminalOpen;
+        renderTerminal();
+      });
+
+      nodes.terminalClose.addEventListener('click', () => {
+        state.ui.terminalOpen = false;
+        renderTerminal();
+      });
+
+      document.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Escape' && state.ui.terminalOpen) {
+          state.ui.terminalOpen = false;
+          renderTerminal();
+        }
+      });
+    }
+
+    async function init() {
+      bindEvents();
+      syncControlsFromInputs();
+      renderAll();
+      addTerminalLog('info', 'terminal ready');
+      addTerminalLog('step', 'waiting for first forecast run');
+      renderTerminal();
+    }
+
+    init();
   </script>
 </body>
 </html>
