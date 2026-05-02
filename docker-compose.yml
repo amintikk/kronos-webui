@@ -3,5 +3,9 @@ services:
     build: .
     container_name: kronos-webui
     network_mode: host
+    environment:
+      - DB_PATH=/data/runs.sqlite3
+    volumes:
+      - ./data:/data
     command: ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "18080"]
     restart: unless-stopped

@@ -65,6 +65,31 @@
       text-rendering: optimizeLegibility;
       -webkit-font-smoothing: antialiased;
       overflow-x: hidden;
+      scrollbar-width: thin;
+      scrollbar-color: #3a3f50 #120f10;
+    }
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: #3a3f50 #120f10;
+    }
+    *::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+    *::-webkit-scrollbar-track {
+      background: #120f10;
+      border: 1px solid #1b1f2a;
+    }
+    *::-webkit-scrollbar-thumb {
+      background: #3a3f50;
+      border: 1px solid #525a70;
+      border-radius: 999px;
+    }
+    *::-webkit-scrollbar-thumb:hover {
+      background: #4b5266;
+    }
+    *::-webkit-scrollbar-corner {
+      background: #120f10;
     }
     img, svg { display: block; max-width: 100%; }
     a { color: inherit; text-decoration: none; }
@@ -175,15 +200,30 @@
       width: 100%;
       min-height: calc(100vh - 66px);
       display: grid;
-      grid-template-columns: minmax(200px, 18%) minmax(0, 64%) minmax(220px, 18%);
+      grid-template-columns: minmax(220px, 20%) minmax(0, 80%);
+      grid-template-rows: auto 1fr;
       border: 1px solid var(--border);
       background: color-mix(in oklch, var(--surface) 42%, transparent);
     }
     .left-rail,
     .center-stage,
     .right-rail { min-width: 0; }
-    .left-rail { border-right: 1px solid var(--border); }
-    .right-rail { border-left: 1px solid var(--border); }
+    .left-rail {
+      grid-column: 1;
+      grid-row: 1;
+      border-right: 1px solid var(--border);
+    }
+    .center-stage {
+      grid-column: 2;
+      grid-row: 1 / span 2;
+    }
+    .right-rail {
+      grid-column: 1;
+      grid-row: 2;
+      border-right: 1px solid var(--border);
+      border-top: 1px solid var(--border);
+      border-left: 0;
+    }
 
     .rail-block {
       padding: var(--rail-pad);
@@ -278,7 +318,8 @@
         minmax(72px, 0.8fr)  /* range */
         minmax(120px, 1.2fr) /* model */
         minmax(108px, 1.1fr) /* exchange */
-        minmax(64px, 0.7fr); /* horizon */
+        minmax(64px, 0.7fr)  /* horizon */
+        minmax(72px, 0.75fr); /* samples */
       align-items: center;
       justify-content: stretch;
       min-width: 0;
@@ -302,6 +343,7 @@
       min-height: 44px;
       padding: 6px 8px;
       border-right: 1px solid var(--border);
+      background: #120F10;
       white-space: nowrap;
       position: relative;
     }
@@ -317,7 +359,7 @@
       min-width: 0;
       border: 0;
       padding: 0 0 1px;
-      background: transparent;
+      background: #120F10;
       outline: none;
       color: var(--fg);
       font-size: 11px;
@@ -326,7 +368,9 @@
     }
     select.input {
       appearance: none;
-      background-color: #0d0e11;
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      background-color: #120F10;
       color: #f4f4f5;
       padding-right: 12px;
       background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
@@ -335,7 +379,7 @@
       background-repeat: no-repeat;
     }
     select.input option {
-      background: #0d0e11;
+      background: #120F10;
       color: #f4f4f5;
     }
     .suggestions {
@@ -470,10 +514,36 @@
       letter-spacing: 0.04em;
       text-transform: uppercase;
     }
+    .chart-legend-ui {
+      min-height: 34px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 0 10px;
+      border-bottom: 1px solid var(--border);
+      background: color-mix(in oklch, var(--surface) 48%, transparent);
+    }
+    .legend-item-ui {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: #cbd5e1;
+      font: 500 10px/1 var(--font-body);
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+    }
+    .legend-dot-ui {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      display: inline-block;
+      flex: 0 0 auto;
+    }
     .chart-frame {
       min-height: clamp(480px, calc(100vh - 250px), 840px);
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 68px;
+      grid-template-columns: minmax(0, 1fr);
       border-bottom: 1px solid var(--border);
     }
     .chart-stage {
@@ -856,7 +926,7 @@
             <div class="toolbar-controls" aria-label="Forecast parameters">
               <div class="field">
                 <label for="pair">pair</label>
-                <input id="pair" class="input" type="text" value="BTC/USDT" autocomplete="off" />
+                <input id="pair" class="input" type="text" value="BTCUSDT" autocomplete="off" />
                 <div id="pairSuggestions" class="suggestions"></div>
               </div>
               <div class="field">
@@ -874,8 +944,8 @@
                 <label for="history">range</label>
                 <select id="history" class="input">
                   <option>7d</option>
-                  <option>15d</option>
-                  <option selected>30d</option>
+                  <option selected>15d</option>
+                  <option>30d</option>
                   <option>90d</option>
                   <option>custom</option>
                 </select>
@@ -906,15 +976,33 @@
                   <option>72</option>
                 </select>
               </div>
+              <div class="field">
+                <label for="sampleRuns">samples</label>
+                <select id="sampleRuns" class="input">
+                  <option>3</option>
+                  <option>5</option>
+                  <option selected>7</option>
+                  <option>10</option>
+                  <option>15</option>
+                  <option>20</option>
+                  <option>30</option>
+                </select>
+              </div>
             </div>
 
             <div class="toolbar-actions">
-              <button class="btn btn-secondary" id="refreshButton" type="button" aria-label="Refresh data">
-                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <button class="btn btn-secondary" id="refreshButton" type="button" aria-label="Refresh data" title="Refresh data">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
                   <path d="M20 12a8 8 0 1 1-2.34-5.66"></path>
                   <path d="M20 4v6h-6"></path>
                 </svg>
-                Refresh
+              </button>
+              <button class="btn btn-secondary" id="saveRunButton" type="button" title="Save run" aria-label="Save run">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                  <path d="M4 4h13l3 3v13H4z"></path>
+                  <path d="M8 4v6h8V4"></path>
+                  <path d="M8 20v-6h8v6"></path>
+                </svg>
               </button>
               <button class="btn btn-primary" id="runButton" type="button">Run Forecast</button>
             </div>
@@ -927,24 +1015,24 @@
               <div class="chart-presets">
                 <button class="btn btn-secondary btn-chart" type="button" data-chart-preset="1d">1D</button>
                 <button class="btn btn-secondary btn-chart" type="button" data-chart-preset="7d">7D</button>
-                <button class="btn btn-secondary btn-chart" type="button" data-chart-preset="15d">15D</button>
-                <button class="btn btn-secondary btn-chart active" type="button" data-chart-preset="30d">30D</button>
+                <button class="btn btn-secondary btn-chart active" type="button" data-chart-preset="15d">15D</button>
+                <button class="btn btn-secondary btn-chart" type="button" data-chart-preset="30d">30D</button>
                 <button class="btn btn-secondary btn-chart" type="button" data-chart-preset="90d">90D</button>
                 <button class="btn btn-secondary btn-chart" type="button" data-chart-preset="all">ALL</button>
                 <button class="btn btn-secondary btn-chart" type="button" id="chartReset">Reset</button>
               </div>
               <span class="chart-help">wheel: zoom · drag: pan</span>
             </div>
+            <div class="chart-legend-ui" aria-label="Chart legend">
+              <span class="legend-item-ui"><span class="legend-dot-ui" style="background:#7ea2ff;"></span>Historical Price</span>
+              <span class="legend-item-ui"><span class="legend-dot-ui" style="background:#f0b35b;"></span>Mean Forecast</span>
+              <span class="legend-item-ui"><span class="legend-dot-ui" style="background:#ebbf67;"></span>Forecast Range (Min-Max)</span>
+              <span class="legend-item-ui"><span class="legend-dot-ui" style="background:rgba(98,188,226,0.8);"></span>Historical Volume</span>
+              <span class="legend-item-ui"><span class="legend-dot-ui" style="background:rgba(230,151,74,0.9);"></span>Mean Forecasted Volume</span>
+            </div>
             <div class="chart-frame">
               <div class="chart-stage">
                 <div id="tvChart" class="chart-svg" style="height: calc(100% - 1px); border-bottom: 0;"></div>
-              </div>
-              <div class="price-scale">
-                <span>max</span>
-                <span>p75</span>
-                <span>mid</span>
-                <span>p25</span>
-                <span>min</span>
               </div>
             </div>
 
@@ -960,8 +1048,8 @@
           <div class="bottom-zone">
             <div class="table-zone" id="runsSection">
               <div class="table-head">
-                <h2>Recent runs</h2>
-                <span class="chip">forecast history</span>
+                <h2>Saved runs</h2>
+                <span class="chip">manual saves</span>
               </div>
               <div class="table-scroll">
                 <table class="ds-table">
@@ -1085,12 +1173,13 @@
   <script>
     const state = {
       controls: {
-        pair: 'BTC/USDT',
+        pair: 'BTCUSDT',
         timeframe: '1h',
-        history: '30d',
+        history: '15d',
         model: 'Kronos-base',
         exchange: 'auto',
-        horizonHours: 24
+        horizonHours: 24,
+        sampleRuns: 7
       },
       market: { price: null, change24h: null, volume24h: null, volatility: null, confidence: null },
       forecast: { latencyMs: null, projectedMovePct: null, expectedVolPct: null, forecastWindowLabel: null, candles: [], projection: [] },
@@ -1100,8 +1189,9 @@
       runs: [],
       logs: [],
       health: { sync: '-', drift: '-', lastError: '-', transport: '-' },
-      ui: { isRunning: false, chartPreset: '30d', terminalOpen: false },
-      terminalLogs: []
+      ui: { isRunning: false, chartPreset: '15d', terminalOpen: false },
+      terminalLogs: [],
+      lastForecastPayload: null
     };
 
     const nodes = {
@@ -1116,8 +1206,10 @@
       model: document.getElementById('model'),
       exchange: document.getElementById('exchange'),
       horizonHours: document.getElementById('horizonHours'),
+      sampleRuns: document.getElementById('sampleRuns'),
       refreshButton: document.getElementById('refreshButton'),
       runButton: document.getElementById('runButton'),
+      saveRunButton: document.getElementById('saveRunButton'),
       terminalToggle: document.getElementById('terminalToggle'),
       terminalClose: document.getElementById('terminalClose'),
       llmTerminal: document.getElementById('llmTerminal'),
@@ -1197,6 +1289,7 @@
       state.controls.model = nodes.model.value;
       state.controls.exchange = nodes.exchange.value;
       state.controls.horizonHours = Number(nodes.horizonHours.value || 24);
+      state.controls.sampleRuns = Number(nodes.sampleRuns.value || 7);
     }
 
     function horizonStepsFromControls() {
@@ -1295,11 +1388,23 @@
       c.setOption({
         backgroundColor: 'transparent',
         animation: false,
-        tooltip: { trigger: 'axis' },
-        legend: {
-          top: 6,
-          textStyle: { color: '#cbd5e1' },
-          data: ['Historical Price', 'Mean Forecast', 'Forecast Range (Min-Max)', 'Historical Volume', 'Mean Forecasted Volume']
+        tooltip: {
+          trigger: 'axis',
+          show: false,
+          showContent: false,
+          axisPointer: {
+            type: 'cross',
+            snap: false,
+            lineStyle: { color: 'rgba(180, 186, 210, 0.45)', width: 1 },
+            label: {
+              show: true,
+              backgroundColor: '#141722',
+              color: '#e7ecff',
+              fontSize: 10,
+              borderColor: '#2c3244',
+              borderWidth: 1
+            }
+          }
         },
         dataZoom: [
           { type: 'inside', xAxisIndex: [0, 1], zoomOnMouseWheel: true, moveOnMouseMove: true, moveOnMouseWheel: true, startValue: startIndex, endValue: endIndex },
@@ -1316,6 +1421,7 @@
             axisLine: { lineStyle: { color: '#3a3a44' } },
             axisLabel: { color: '#a1a1aa', fontSize: 10, rotate: 20 },
             splitLine: { show: true, lineStyle: { color: '#23232b' } },
+            axisPointer: { show: true },
           },
           {
             type: 'category',
@@ -1324,6 +1430,7 @@
             axisLine: { lineStyle: { color: '#3a3a44' } },
             axisLabel: { color: '#a1a1aa', fontSize: 10, rotate: 20 },
             splitLine: { show: true, lineStyle: { color: '#23232b' } },
+            axisPointer: { show: true },
           }
         ],
         yAxis: [
@@ -1335,6 +1442,7 @@
             axisLine: { lineStyle: { color: '#3a3a44' } },
             splitLine: { lineStyle: { color: '#23232b' } },
             axisLabel: { color: '#a1a1aa' },
+            axisPointer: { show: true, label: { show: true } },
           },
           {
             type: 'value',
@@ -1344,6 +1452,7 @@
             axisLine: { lineStyle: { color: '#3a3a44' } },
             splitLine: { lineStyle: { color: '#23232b' } },
             axisLabel: { color: '#a1a1aa' },
+            axisPointer: { show: true, label: { show: true } },
           }
         ],
         series: [
@@ -1440,9 +1549,10 @@
         history: state.controls.history,
         model: state.controls.model,
         exchange: state.controls.exchange,
-        horizon_steps: horizonStepsFromControls()
+        horizon_steps: horizonStepsFromControls(),
+        sample_runs: state.controls.sampleRuns
       };
-      addTerminalLog('step', `prepare payload pair=${body.pair} tf=${body.timeframe} model=${body.model} ex=${body.exchange} h=${body.horizon_steps}`);
+      addTerminalLog('step', `prepare payload pair=${body.pair} tf=${body.timeframe} model=${body.model} ex=${body.exchange} h=${body.horizon_steps} n=${body.sample_runs}`);
       const t0 = performance.now();
       const response = await fetch('/api/forecast/stream', {
         method: 'POST',
@@ -1493,11 +1603,55 @@
       return data;
     }
 
+    async function requestRunReplay(runId) {
+      const response = await fetch(`/api/runs/${encodeURIComponent(runId)}`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || (`HTTP ${response.status}`));
+      return data;
+    }
+
+    async function loadSavedRuns() {
+      const response = await fetch('/api/runs');
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || (`HTTP ${response.status}`));
+      state.runs = data.runs || [];
+      renderRuns();
+    }
+
+    async function saveCurrentRun() {
+      if (!state.lastForecastPayload) {
+        addTerminalLog('warn', 'no forecast available to save yet');
+        return;
+      }
+      const reqBody = {
+        pair: state.controls.pair,
+        timeframe: state.controls.timeframe,
+        history: state.controls.history,
+        model: state.controls.model,
+        exchange: state.controls.exchange,
+        horizon_steps: horizonStepsFromControls(),
+        sample_runs: state.controls.sampleRuns
+      };
+      const source = state.lastForecastPayload.source_note || 'Manual save';
+      addTerminalLog('step', 'saving current run');
+      const response = await fetch('/api/runs/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ request: reqBody, response: state.lastForecastPayload, source_note: source })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || (`HTTP ${response.status}`));
+      state.runs = data.runs || state.runs;
+      renderRuns();
+      addTerminalLog('info', `run saved (${state.runs.length} total saved)`);
+    }
+
     function renderToolbar() {
       nodes.spotPrice.textContent = formatPrice(state.market.price);
       nodes.spotPair.textContent = state.controls.pair;
       nodes.runButton.disabled = state.ui.isRunning;
       nodes.refreshButton.disabled = state.ui.isRunning;
+      nodes.saveRunButton.disabled = state.ui.isRunning || !state.lastForecastPayload;
       nodes.runButton.textContent = state.ui.isRunning ? 'Running…' : 'Run Forecast';
     }
 
@@ -1562,11 +1716,11 @@
 
     function renderRuns() {
       if (!(state.runs || []).length) {
-        nodes.resultsBody.innerHTML = `<tr><td colspan="6" class="meta">No real run history stored yet.</td></tr>`;
+        nodes.resultsBody.innerHTML = `<tr><td colspan="6" class="meta">No saved runs yet.</td></tr>`;
         return;
       }
       nodes.resultsBody.innerHTML = state.runs.map((row) => `
-        <tr>
+        <tr data-run-id="${row.id || ''}" style="cursor:pointer;" title="Load this run on chart">
           <td class="num">${row.timestamp}</td>
           <td class="num">${row.pair}</td>
           <td>${row.model}</td>
@@ -1664,6 +1818,7 @@
       addTerminalLog('step', 'run forecast started');
       try {
         const payload = await requestForecast();
+        state.lastForecastPayload = payload;
         applyPayload(payload);
         addTerminalLog('info', `signal=${payload?.signal?.direction || '-'} confidence=${payload?.signal?.confidencePct ?? '-'}% risk=${payload?.signal?.risk || '-'}`);
       } catch (error) {
@@ -1684,6 +1839,20 @@
       await runForecast();
     }
 
+    async function replayRunOnChart(runId) {
+      const id = Number(runId);
+      if (!Number.isFinite(id) || id <= 0) return;
+      addTerminalLog('step', `loading replay for run #${id}`);
+      try {
+        const payload = await requestRunReplay(id);
+        applyPayload(payload);
+        const replay = payload.replay || {};
+        addTerminalLog('info', `replay loaded #${id} (${replay.pair || '-'} ${replay.timeframe || '-'})`);
+      } catch (error) {
+        addTerminalLog('error', `replay failed #${id}: ${String(error.message || error)}`);
+      }
+    }
+
     async function handleControlChange() {
       syncControlsFromInputs();
       if (state.controls.history !== 'custom') {
@@ -1695,7 +1864,14 @@
     function bindEvents() {
       nodes.refreshButton.addEventListener('click', refreshFeed);
       nodes.runButton.addEventListener('click', runForecast);
-      [nodes.timeframe, nodes.history, nodes.model, nodes.exchange, nodes.horizonHours, nodes.pair].forEach((node) => {
+      nodes.saveRunButton.addEventListener('click', async () => {
+        try {
+          await saveCurrentRun();
+        } catch (error) {
+          addTerminalLog('error', `save failed: ${String(error.message || error)}`);
+        }
+      });
+      [nodes.timeframe, nodes.history, nodes.model, nodes.exchange, nodes.horizonHours, nodes.sampleRuns, nodes.pair].forEach((node) => {
         node.addEventListener('change', handleControlChange);
       });
       nodes.pair.addEventListener('input', () => {
@@ -1717,6 +1893,14 @@
       document.addEventListener('click', (ev) => {
         if (ev.target === nodes.pair || nodes.pairSuggestions.contains(ev.target)) return;
         nodes.pairSuggestions.classList.remove('open');
+      });
+
+      nodes.resultsBody.addEventListener('click', (ev) => {
+        const tr = ev.target.closest('tr[data-run-id]');
+        if (!tr) return;
+        const runId = tr.getAttribute('data-run-id');
+        if (!runId) return;
+        replayRunOnChart(runId);
       });
 
       nodes.navLinks.forEach((link) => {
@@ -1776,6 +1960,11 @@
       bindEvents();
       syncControlsFromInputs();
       renderAll();
+      try {
+        await loadSavedRuns();
+      } catch (error) {
+        addTerminalLog('warn', `could not preload saved runs: ${String(error.message || error)}`);
+      }
       addTerminalLog('info', 'terminal ready');
       addTerminalLog('step', 'waiting for first forecast run');
       renderTerminal();

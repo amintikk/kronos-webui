@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 import json
+import os
 from queue import Queue
 import sqlite3
 from threading import Thread
@@ -23,12 +24,13 @@ from backend.kronos_engine import run_ensemble_forecast, run_forecast
 
 
 class ForecastRequest(BaseModel):
-    pair: str = Field(default="BTC/USDT")
+    pair: str = Field(default="BTCUSDT")
     timeframe: Literal["1m", "5m", "15m", "1h", "4h", "1d"] = "1h"
-    history: Literal["7d", "15d", "30d", "90d", "custom"] = "30d"
+    history: Literal["7d", "15d", "30d", "90d", "custom"] = "15d"
     model: Literal["Kronos-small", "Kronos-base", "Kronos-ensemble"] = "Kronos-base"
     exchange: Literal["auto", "yahoo", "binance"] = "auto"
     horizon_steps: int = Field(default=12, ge=4, le=120)
+    sample_runs: int = Field(default=7, ge=1, le=40)
     start: Optional[str] = None
     end: Optional[str] = None
 
@@ -40,8 +42,14 @@ class SearchResult(BaseModel):
     type: str
 
 
+class SaveRunRequest(BaseModel):
+    request: ForecastRequest
+    response: dict
+    source_note: str = "Manual save"
+
+
 app = FastAPI(title="Kronos WebUI API", version="1.0.0")
-DB_PATH = "/app/backend/runs.sqlite3"
+DB_PATH = os.getenv("DB_PATH", "/data/runs.sqlite3")
 
 app.add_middleware(
     CORSMiddleware,
@@ -76,12 +84,16 @@ def init_db() -> None:
               projected_move_pct REAL NOT NULL,
               confidence INTEGER NOT NULL,
               risk TEXT NOT NULL,
-              latency_ms INTEGER NOT NULL
+              latency_ms INTEGER NOT NULL,
+              response_json TEXT NOT NULL DEFAULT '{}'
             )
             """
         )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at DESC)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_runs_pair ON runs(pair)")
+        cols = [row["name"] for row in conn.execute("PRAGMA table_info(runs)").fetchall()]
+        if "response_json" not in cols:
+            conn.execute("ALTER TABLE runs ADD COLUMN response_json TEXT NOT NULL DEFAULT '{}'")
 
 
 @app.on_event("startup")
@@ -91,9 +103,19 @@ def on_startup() -> None:
 
 def pair_to_yahoo_symbol(pair: str) -> str:
     pair = pair.strip().upper()
-    if "/" not in pair:
-        return pair
-    base, quote = pair.split("/", 1)
+    base = ""
+    quote = ""
+    if "/" in pair:
+        base, quote = pair.split("/", 1)
+    else:
+        known_quotes = ["USDT", "USDC", "USD", "BTC", "ETH", "BNB", "EUR", "TRY"]
+        for q in known_quotes:
+            if pair.endswith(q) and len(pair) > len(q):
+                base = pair[: -len(q)]
+                quote = q
+                break
+        if not base or not quote:
+            return pair
     quote_map = {
         "USDT": "USD",
         "USDC": "USD",
@@ -495,8 +517,8 @@ def save_run(
             """
             INSERT INTO runs (
               created_at, pair, timeframe, history, model, exchange_mode, horizon_steps,
-              source_note, spot_price, projected_close, projected_move_pct, confidence, risk, latency_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              source_note, spot_price, projected_close, projected_move_pct, confidence, risk, latency_ms, response_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 datetime.now(timezone.utc).isoformat(),
@@ -513,6 +535,7 @@ def save_run(
                 int(market.get("confidence") or 0),
                 str(signal.get("risk") or "-"),
                 int(forecast.get("latencyMs") or 0),
+                json.dumps(response),
             ),
         )
 
@@ -521,7 +544,7 @@ def fetch_recent_runs(limit: int = 20) -> List[dict]:
     with get_db() as conn:
         rows = conn.execute(
             """
-            SELECT created_at, pair, model, projected_move_pct, confidence, risk
+            SELECT id, created_at, pair, model, projected_move_pct, confidence, risk
             FROM runs
             ORDER BY datetime(created_at) DESC
             LIMIT ?
@@ -533,6 +556,7 @@ def fetch_recent_runs(limit: int = 20) -> List[dict]:
         dt = datetime.fromisoformat(row["created_at"])
         out.append(
             {
+                "id": int(row["id"]),
                 "timestamp": dt.strftime("%Y-%m-%d %H:%M"),
                 "pair": row["pair"],
                 "model": row["model"],
@@ -606,7 +630,7 @@ def compute_forecast_response(req: ForecastRequest, progress_cb=None) -> dict:
     y_idx = future_index(data_for_model.index[-1], step, req.horizon_steps)
     y_ts = pd.Series(y_idx)
 
-    sample_runs = 7 if req.model != "Kronos-ensemble" else 5
+    sample_runs = int(req.sample_runs or (7 if req.model != "Kronos-ensemble" else 5))
     started = datetime.now(timezone.utc)
     emit("inference", f"Starting Kronos probabilistic inference ({sample_runs} runs)", 50)
     try:
@@ -637,10 +661,46 @@ def compute_forecast_response(req: ForecastRequest, progress_cb=None) -> dict:
         infer_note=f"Model {req.model} generated {req.horizon_steps} forecast steps with {sample_runs} stochastic runs (p10/p50/p90).",
         prob_bands=prob_bands,
     )
-    save_run(req, response, source_note=source_note)
     response["runs"] = fetch_recent_runs(limit=20)
+    response["request_context"] = req.model_dump()
+    response["source_note"] = source_note
     emit("done", "Response assembled", 100)
     return response
+
+
+def load_history_for_run_context(pair: str, timeframe: str, history: str, exchange_mode: str) -> tuple[pd.DataFrame, str]:
+    symbol = pair_to_yahoo_symbol(pair)
+    interval = timeframe_to_interval(timeframe)
+    req = ForecastRequest(
+        pair=pair,
+        timeframe=timeframe,
+        history=history,
+        model="Kronos-base",
+        exchange=exchange_mode if exchange_mode in ("auto", "yahoo", "binance") else "auto",
+        horizon_steps=12,
+    )
+    data = pd.DataFrame()
+    source_note = ""
+    if req.exchange == "yahoo":
+        data = fetch_history(symbol, req, interval)
+        source_note = "Yahoo Finance"
+    elif req.exchange == "binance":
+        data = fetch_binance_history(req.pair, req.timeframe, req.history)
+        source_note = "Binance public klines"
+    else:
+        try:
+            data = fetch_history(symbol, req, interval)
+            source_note = "Yahoo Finance"
+        except Exception:
+            data = pd.DataFrame()
+        if data is None or data.empty:
+            data = fetch_binance_history(req.pair, req.timeframe, req.history)
+            source_note = "Binance public klines (auto-fallback)"
+    if data is None or data.empty:
+        raise HTTPException(status_code=502, detail="Could not load updated history for replay")
+    data.index = pd.to_datetime(data.index, utc=True)
+    data = resample_if_needed(data, timeframe).dropna()
+    return data, source_note
 
 
 @app.get("/api/health")
@@ -696,6 +756,87 @@ def forecast_stream(req: ForecastRequest):
                 break
 
     return StreamingResponse(event_stream(), media_type="application/x-ndjson")
+
+
+@app.post("/api/runs/save")
+def save_run_endpoint(body: SaveRunRequest):
+    save_run(req=body.request, response=body.response, source_note=body.source_note or "Manual save")
+    return {"ok": True, "runs": fetch_recent_runs(limit=20)}
+
+
+@app.get("/api/runs")
+def list_saved_runs():
+    return {"runs": fetch_recent_runs(limit=50)}
+
+
+@app.get("/api/runs/{run_id}")
+def replay_run(run_id: int):
+    with get_db() as conn:
+        row = conn.execute(
+            """
+            SELECT id, created_at, pair, timeframe, history, model, exchange_mode, horizon_steps, response_json
+            FROM runs
+            WHERE id = ?
+            """,
+            (run_id,),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    try:
+        saved = json.loads(row["response_json"] or "{}")
+    except Exception:
+        saved = {}
+    if not isinstance(saved, dict) or not saved.get("forecast") or not saved.get("forecast", {}).get("projection"):
+        raise HTTPException(status_code=422, detail="This run was saved before snapshot support and cannot be replayed")
+
+    pair = str(row["pair"])
+    timeframe = str(row["timeframe"])
+    history = str(row["history"])
+    exchange_mode = str(row["exchange_mode"])
+    data, source_note = load_history_for_run_context(pair, timeframe, history, exchange_mode)
+
+    step = infer_step_delta(timeframe)
+    days_by_history = {"7d": 7, "15d": 15, "30d": 30, "90d": 90, "custom": 90}
+    target_points = int((days_by_history.get(history, 30) * 24 * 3600) / max(1.0, step.total_seconds()))
+    target_points = max(80, min(2000, target_points))
+    candles = []
+    for ts, r in data.tail(target_points).iterrows():
+        candles.append(
+            {
+                "timestamp": ts.isoformat(),
+                "open": float(r["Open"]),
+                "high": float(r["High"]),
+                "low": float(r["Low"]),
+                "close": float(r["Close"]),
+                "volume": float(r.get("Volume", 0.0) or 0.0),
+            }
+        )
+
+    payload = saved if isinstance(saved, dict) else {}
+    payload.setdefault("forecast", {})
+    payload["forecast"]["candles"] = candles
+    payload.setdefault("logs", [])
+    payload["logs"] = [
+        {
+            "time": datetime.now(timezone.utc).strftime("%H:%M:%SZ"),
+            "level": "info",
+            "title": "Run replay loaded",
+            "detail": f"Run #{run_id} from {row['created_at']} · updated history from {source_note}",
+        }
+    ] + payload["logs"][:3]
+    payload["runs"] = fetch_recent_runs(limit=20)
+    payload["replay"] = {
+        "runId": run_id,
+        "createdAt": row["created_at"],
+        "pair": pair,
+        "timeframe": timeframe,
+        "history": history,
+        "model": row["model"],
+        "exchange": exchange_mode,
+        "horizon_steps": int(row["horizon_steps"]),
+    }
+    return JSONResponse(content=payload)
 
 
 # Serve the frontend from repo root
