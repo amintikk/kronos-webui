@@ -1,0 +1,1376 @@
+
+<!doctype html>
+<html lang="es">
+<head><script>(function(){
+  function makeStore(){
+    var data = {};
+    var api = {
+      getItem: function(k){ return Object.prototype.hasOwnProperty.call(data, k) ? data[k] : null; },
+      setItem: function(k, v){ data[k] = String(v); },
+      removeItem: function(k){ delete data[k]; },
+      clear: function(){ data = {}; },
+      key: function(i){ return Object.keys(data)[i] || null; }
+    };
+    Object.defineProperty(api, 'length', { get: function(){ return Object.keys(data).length; } });
+    return api;
+  }
+  function tryShim(name){
+    var works = false;
+    try { works = !!window[name] && typeof window[name].getItem === 'function'; void window[name].length; }
+    catch (_) { works = false; }
+    if (works) return;
+    try { Object.defineProperty(window, name, { configurable: true, value: makeStore() }); }
+    catch (_) { try { window[name] = makeStore(); } catch (__) {} }
+  }
+  tryShim('localStorage');
+  tryShim('sessionStorage');
+})();</script>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kronos · Production Terminal</title>
+  <style>
+    :root {
+      --bg: #09090b;
+      --surface: #111215;
+      --surface-2: #0d0e11;
+      --fg: #f4f4f5;
+      --muted: #a1a1aa;
+      --border: #27272a;
+      --accent: #fafafa;
+      --accent-soft: color-mix(in oklch, var(--fg) 8%, transparent);
+      --fg-soft: color-mix(in oklch, var(--fg) 4%, transparent);
+      --good: #4ade80;
+      --bad: #f87171;
+      --warn: #facc15;
+
+      --font-display: 'Geist', 'Inter', 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
+      --font-body: 'Geist', 'Inter', 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Roboto Mono', 'SF Mono', ui-monospace, Menlo, monospace;
+
+      --fs-body: 12px;
+      --fs-meta: 10px;
+      --shell-gap: 12px;
+      --rail-pad: 10px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-body);
+      font-size: var(--fs-body);
+      line-height: 1.35;
+      text-rendering: optimizeLegibility;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+    img, svg { display: block; max-width: 100%; }
+    a { color: inherit; text-decoration: none; }
+    button, input, select { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    p, h1, h2, h3 { margin: 0; }
+    h1, h2, h3 {
+      font-family: var(--font-display);
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      text-wrap: balance;
+    }
+    h1 { font-size: 13px; line-height: 1.1; }
+    h2 { font-size: 13px; line-height: 1.15; }
+    .meta {
+      color: var(--muted);
+      font: 400 var(--fs-meta)/1.35 var(--font-body);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .num {
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+    }
+    .trend-positive { color: var(--good); }
+    .trend-negative { color: var(--bad); }
+    .trend-warning { color: var(--warn); }
+    .lead {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.45;
+      text-wrap: pretty;
+    }
+
+    .topnav {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      border-bottom: 1px solid var(--border);
+      background: color-mix(in oklch, var(--bg) 94%, transparent);
+      backdrop-filter: blur(10px);
+    }
+    .topnav-inner {
+      width: 100%;
+      min-height: 40px;
+      display: grid;
+      grid-template-columns: 180px 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 0 12px;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font: 600 12px/1 var(--font-display);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .logo-mark {
+      width: 15px;
+      height: 15px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .topnav nav {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      overflow-x: auto;
+    }
+    .topnav nav a {
+      color: var(--muted);
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      white-space: nowrap;
+    }
+    .topnav nav a.active,
+    .topnav nav a:hover { color: var(--fg); }
+    .topnav-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 18px;
+      padding: 0 6px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      background: color-mix(in oklch, var(--surface) 22%, transparent);
+      font: 500 10px/1 var(--font-mono);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+    }
+
+    .workspace-shell {
+      width: 100%;
+      padding: 12px;
+    }
+    .app-shell {
+      width: 100%;
+      min-height: calc(100vh - 66px);
+      display: grid;
+      grid-template-columns: minmax(220px, 20%) minmax(0, 60%) minmax(260px, 20%);
+      border: 1px solid var(--border);
+      background: color-mix(in oklch, var(--surface) 42%, transparent);
+    }
+    .left-rail,
+    .center-stage,
+    .right-rail { min-width: 0; }
+    .left-rail { border-right: 1px solid var(--border); }
+    .right-rail { border-left: 1px solid var(--border); }
+
+    .rail-block {
+      padding: var(--rail-pad);
+      border-bottom: 1px solid var(--border);
+    }
+    .rail-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .sidebar-nav,
+    .watchlist,
+    .tiny-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .nav-item,
+    .watch-row,
+    .tiny-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 8px;
+      min-height: 22px;
+    }
+    .nav-item,
+    .watch-main strong {
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+    .nav-item { color: var(--muted); }
+    .nav-item.active,
+    .nav-item:hover { color: var(--fg); }
+    .watch-row {
+      padding-bottom: 4px;
+      border-bottom: 1px solid var(--border);
+    }
+    .watch-row:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+    .watch-main {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+
+    .center-stage {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+    }
+    .toolbar {
+      width: 100%;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 0;
+      border-bottom: 1px solid var(--border);
+      background: color-mix(in oklch, var(--surface) 56%, transparent);
+    }
+    .toolbar-price,
+    .toolbar-actions,
+    .toolbar-controls {
+      min-width: 0;
+    }
+    .toolbar-price {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 42px;
+      padding: 0 10px;
+      border-right: 1px solid var(--border);
+    }
+    .spot-price {
+      font: 500 20px/1 var(--font-mono);
+      letter-spacing: -0.05em;
+    }
+    .spot-pair {
+      color: var(--muted);
+      font: 500 12px/1 var(--font-mono);
+      letter-spacing: -0.02em;
+    }
+    .toolbar-controls {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 0;
+      overflow: hidden;
+      flex-wrap: wrap;
+    }
+    .toolbar-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 6px;
+      min-height: 42px;
+      padding: 0 10px;
+      border-left: 1px solid var(--border);
+    }
+    .field {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 42px;
+      padding: 0 10px;
+      border-right: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .field:last-child { border-right: 0; }
+    .field label {
+      color: var(--muted);
+      font: 500 9px/1 var(--font-body);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .input {
+      min-width: 0;
+      border: 0;
+      padding: 0;
+      background: transparent;
+      outline: none;
+      color: var(--fg);
+      font-size: 12px;
+    }
+    select.input {
+      appearance: none;
+      padding-right: 12px;
+      background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+      background-position: calc(100% - 8px) 52%, calc(100% - 4px) 52%;
+      background-size: 4px 4px, 4px 4px;
+      background-repeat: no-repeat;
+    }
+    .input:focus { color: var(--accent); }
+    .btn {
+      min-height: 24px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 0 8px;
+      border: 1px solid var(--border);
+      background: transparent;
+      font: 500 10px/1 var(--font-mono);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      transition: border-color .15s ease, background .15s ease, color .15s ease;
+    }
+    .btn:hover { border-color: color-mix(in oklch, var(--fg) 18%, var(--border)); }
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+    .btn-secondary {
+      color: var(--muted);
+      background: color-mix(in oklch, var(--surface) 18%, transparent);
+    }
+    .btn-primary {
+      color: var(--bg);
+      background: var(--fg);
+      border-color: var(--fg);
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: color-mix(in oklch, var(--fg) 88%, var(--muted));
+    }
+
+    .metric-bar {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      border-bottom: 1px solid var(--border);
+    }
+    .metric {
+      min-height: 52px;
+      padding: 8px 10px;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 4px;
+    }
+    .metric:last-child { border-right: 0; }
+    .metric-value {
+      font: 500 15px/1 var(--font-mono);
+      letter-spacing: -0.04em;
+    }
+    .metric-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+
+    .chart-shell {
+      min-height: 0;
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) auto;
+    }
+    .chart-frame {
+      min-height: clamp(480px, calc(100vh - 250px), 840px);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 68px;
+      border-bottom: 1px solid var(--border);
+    }
+    .chart-stage {
+      min-width: 0;
+      overflow: hidden;
+      background:
+        linear-gradient(to right, color-mix(in oklch, var(--border) 60%, transparent) 1px, transparent 1px) 0 0 / calc(100% / 16) 100%,
+        linear-gradient(to bottom, color-mix(in oklch, var(--border) 60%, transparent) 1px, transparent 1px) 0 0 / 100% calc(100% / 10),
+        color-mix(in oklch, var(--surface) 42%, transparent);
+    }
+    .chart-svg {
+      width: 100%;
+      height: calc(100% - 112px);
+      min-height: 360px;
+      border-bottom: 1px solid var(--border);
+    }
+    .volume-svg {
+      width: 100%;
+      height: 90px;
+      background: color-mix(in oklch, var(--surface) 48%, transparent);
+    }
+    .axis-strip {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 10px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font: 500 10px/1 var(--font-mono);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .price-scale {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 6px;
+      padding: 8px 6px;
+      border-left: 1px solid var(--border);
+      color: var(--muted);
+      background: color-mix(in oklch, var(--surface) 52%, transparent);
+      font: 500 10px/1.2 var(--font-mono);
+    }
+    .chart-stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+    .chart-stat {
+      min-height: 46px;
+      padding: 8px 10px;
+      border-right: 1px solid var(--border);
+    }
+    .chart-stat:last-child { border-right: 0; }
+    .chart-stat strong {
+      display: block;
+      margin-top: 4px;
+      font: 500 13px/1 var(--font-mono);
+    }
+
+    .bottom-zone {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      min-height: 220px;
+    }
+    .table-zone { border-right: 1px solid var(--border); }
+    .table-head,
+    .log-head,
+    .signal-head {
+      min-height: 34px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 0 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .table-scroll,
+    .log-feed {
+      overflow: auto;
+      max-height: 186px;
+    }
+    .log-feed {
+      display: flex;
+      flex-direction: column;
+    }
+    .log-entry {
+      display: grid;
+      grid-template-columns: 64px 1fr;
+      gap: 8px;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .log-entry:last-child { border-bottom: 0; }
+    .log-entry strong {
+      display: block;
+      margin-bottom: 3px;
+      font-family: var(--font-display);
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .ds-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+    .ds-table th,
+    .ds-table td {
+      padding: 7px 9px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    .ds-table th {
+      position: sticky;
+      top: 0;
+      background: var(--surface-2);
+      color: var(--muted);
+      font: 500 9px/1 var(--font-body);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .ds-table tbody tr:hover { background: var(--fg-soft); }
+    .num-col {
+      text-align: right;
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .signal-panel {
+      min-height: 100%;
+      display: grid;
+      grid-template-rows: auto auto auto auto 1fr;
+    }
+    .signal-main,
+    .signal-readout,
+    .signal-health {
+      padding: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .signal-direction {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 6px;
+    }
+    .signal-direction strong {
+      font: 500 20px/1 var(--font-mono);
+      letter-spacing: -0.04em;
+    }
+    .signal-summary-grid,
+    .signal-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+    }
+    .signal-summary-cell,
+    .signal-cell {
+      min-height: 54px;
+      padding: 8px 10px;
+      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 4px;
+    }
+    .signal-summary-cell:nth-child(2n),
+    .signal-cell:nth-child(2n) { border-right: 0; }
+    .signal-summary-cell strong,
+    .signal-cell strong {
+      font: 500 13px/1 var(--font-mono);
+    }
+
+    .status-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      min-height: 22px;
+    }
+    .pagefoot {
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 10px;
+      padding: 8px 12px 14px;
+    }
+
+    @media (max-width: 1320px) {
+      .metric-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .chart-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .bottom-zone { grid-template-columns: 1fr; }
+      .table-zone { border-right: 0; border-bottom: 1px solid var(--border); }
+    }
+    @media (max-width: 1140px) {
+      .topnav-inner { grid-template-columns: 1fr; padding-block: 8px; }
+      .app-shell { grid-template-columns: 1fr; }
+      .left-rail { border-right: 0; border-bottom: 1px solid var(--border); }
+      .right-rail { border-left: 0; border-top: 1px solid var(--border); }
+    }
+    @media (max-width: 920px) {
+      .toolbar {
+        grid-template-columns: 1fr;
+      }
+      .toolbar-price,
+      .toolbar-actions {
+        border: 0;
+        border-bottom: 1px solid var(--border);
+      }
+      .toolbar-actions {
+        justify-content: flex-start;
+      }
+      .metric-bar,
+      .chart-frame,
+      .chart-stats,
+      .signal-summary-grid,
+      .signal-grid { grid-template-columns: 1fr; }
+      .price-scale {
+        border-left: 0;
+        border-top: 1px solid var(--border);
+        flex-direction: row;
+      }
+      .table-scroll,
+      .log-feed { max-height: none; }
+      .log-entry { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topnav" data-od-id="topnav">
+    <div class="topnav-inner">
+      <div class="logo">
+        <span class="logo-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6">
+            <path d="M5 18L12 5l7 13"></path>
+            <path d="M8.5 13h7"></path>
+          </svg>
+        </span>
+        <span>Kronos</span>
+      </div>
+      <nav aria-label="Primary">
+        <a class="active" href="#">workbench</a>
+        <a href="#">runs</a>
+        <a href="#">signals</a>
+        <a href="#">datasets</a>
+        <a href="#">logs</a>
+      </nav>
+      <div class="topnav-meta">
+        <span class="chip">env · paper</span>
+        <span class="chip">user · analyst@kronos</span>
+      </div>
+    </div>
+  </header>
+
+  <main id="content">
+    <section class="workspace-shell" data-od-id="workspace">
+      <div class="app-shell">
+        <aside class="left-rail">
+          <div class="rail-block">
+            <div class="rail-title">
+              <p class="meta">navigation</p>
+              <span class="meta">f1</span>
+            </div>
+            <div class="sidebar-nav">
+              <div class="nav-item active"><strong>forecast console</strong><span class="meta">01</span></div>
+              <div class="nav-item"><strong>recent runs</strong><span class="meta">24</span></div>
+              <div class="nav-item"><strong>live signals</strong><span class="meta">03</span></div>
+              <div class="nav-item"><strong>system logs</strong><span class="meta">18</span></div>
+            </div>
+          </div>
+
+          <div class="rail-block">
+            <div class="rail-title">
+              <p class="meta">watchlist</p>
+              <span class="meta">live</span>
+            </div>
+            <div class="watchlist" id="watchlist"></div>
+          </div>
+
+          <div class="rail-block">
+            <div class="rail-title">
+              <p class="meta">session</p>
+              <span class="meta">runtime</span>
+            </div>
+            <div class="tiny-list">
+              <div class="tiny-row"><span class="meta">feed</span><span class="num" id="sessionFeed">streaming</span></div>
+              <div class="tiny-row"><span class="meta">latency budget</span><span class="num">120 ms</span></div>
+              <div class="tiny-row"><span class="meta">pipeline</span><span class="num">forecast-v2</span></div>
+            </div>
+          </div>
+        </aside>
+
+        <section class="center-stage">
+          <div class="toolbar">
+            <div class="toolbar-price">
+              <strong class="spot-price num" id="spotPrice">$64,483.03</strong>
+              <span class="spot-pair num" id="spotPair">BTC/USDT</span>
+            </div>
+
+            <div class="toolbar-controls" aria-label="Forecast parameters">
+              <div class="field">
+                <label for="timeframe">tf</label>
+                <select id="timeframe" class="input">
+                  <option>1m</option>
+                  <option>5m</option>
+                  <option>15m</option>
+                  <option selected>1h</option>
+                  <option>4h</option>
+                  <option>1d</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="history">range</label>
+                <select id="history" class="input">
+                  <option>7d</option>
+                  <option selected>30d</option>
+                  <option>90d</option>
+                  <option>custom</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="model">model</label>
+                <select id="model" class="input">
+                  <option>Kronos-base</option>
+                  <option selected>Kronos-large</option>
+                  <option>Kronos-ensemble</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="exchange">exchange</label>
+                <select id="exchange" class="input">
+                  <option>Binance</option>
+                  <option>Coinbase Advanced</option>
+                  <option>Bybit</option>
+                  <option>Kraken</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="toolbar-actions">
+              <button class="btn btn-secondary" id="refreshButton" type="button" aria-label="Refresh data">
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                  <path d="M20 12a8 8 0 1 1-2.34-5.66"></path>
+                  <path d="M20 4v6h-6"></path>
+                </svg>
+                Refresh
+              </button>
+              <button class="btn btn-primary" id="runButton" type="button">Run Forecast</button>
+            </div>
+          </div>
+
+          <div class="metric-bar" id="metricBar"></div>
+
+          <div class="chart-shell">
+            <div class="chart-frame">
+              <div class="chart-stage">
+                <svg class="chart-svg" id="candlesSvg" viewBox="0 0 1080 520" preserveAspectRatio="none" aria-label="Candlestick chart"></svg>
+                <svg class="volume-svg" id="volumeSvg" viewBox="0 0 1080 90" preserveAspectRatio="none" aria-label="Volume chart"></svg>
+                <div class="axis-strip" id="axisStrip"></div>
+              </div>
+              <div class="price-scale" id="priceScale"></div>
+            </div>
+
+            <div class="chart-stats">
+              <div class="chart-stat"><span class="meta">forecast window</span><strong class="num" id="forecastWindow">12h / 12 steps</strong></div>
+              <div class="chart-stat"><span class="meta">projected move</span><strong class="num" id="projectedMove">+2.84%</strong></div>
+              <div class="chart-stat"><span class="meta">expected vol</span><strong class="num" id="expectedVol">3.12%</strong></div>
+              <div class="chart-stat"><span class="meta">run latency</span><strong class="num" id="runLatency">412 ms</strong></div>
+            </div>
+          </div>
+
+          <div class="bottom-zone">
+            <div class="table-zone">
+              <div class="table-head">
+                <h2>Recent runs</h2>
+                <span class="chip">forecast history</span>
+              </div>
+              <div class="table-scroll">
+                <table class="ds-table">
+                  <thead>
+                    <tr>
+                      <th>timestamp</th>
+                      <th>pair</th>
+                      <th>model</th>
+                      <th>prediction</th>
+                      <th class="num-col">confidence</th>
+                      <th class="num-col">hist. error</th>
+                    </tr>
+                  </thead>
+                  <tbody id="resultsBody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="log-zone">
+              <div class="log-head">
+                <h2>Events</h2>
+                <span class="chip">stream</span>
+              </div>
+              <div class="log-feed" id="logFeed"></div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="right-rail">
+          <div class="signal-panel">
+            <div class="signal-head">
+              <h2>Signal snapshot</h2>
+              <span class="chip num" id="signalPair">BTC/USDT</span>
+            </div>
+
+            <div class="signal-main">
+              <span class="meta">direction</span>
+              <div class="signal-direction">
+                <strong class="num" id="signalDirection">bullish</strong>
+                <span class="num" id="signalConfidence">84%</span>
+              </div>
+            </div>
+
+            <div class="signal-summary-grid">
+              <div class="signal-summary-cell">
+                <span class="meta">window</span>
+                <strong class="num" id="signalWindow">12h / 12 steps</strong>
+              </div>
+              <div class="signal-summary-cell">
+                <span class="meta">spread</span>
+                <strong class="num" id="signalSpread">1.26%</strong>
+              </div>
+            </div>
+
+            <div class="signal-grid">
+              <div class="signal-cell">
+                <span class="meta">horizon</span>
+                <strong class="num" id="signalHorizon">12h</strong>
+              </div>
+              <div class="signal-cell">
+                <span class="meta">risk</span>
+                <strong class="num" id="signalRisk">medium</strong>
+              </div>
+              <div class="signal-cell">
+                <span class="meta">updated</span>
+                <strong class="num" id="signalUpdated">14:42:18Z</strong>
+              </div>
+              <div class="signal-cell">
+                <span class="meta">24h delta</span>
+                <strong class="num" id="signalDelta">+1.42%</strong>
+              </div>
+            </div>
+
+            <div class="signal-readout">
+              <div class="stack">
+                <p class="meta">readout</p>
+                <p class="lead" id="signalSummary">Continuation above local midpoint remains favored if spot volume stays above six-hour median.</p>
+              </div>
+            </div>
+
+            <div class="signal-health">
+              <div class="rail-title">
+                <p class="meta">health</p>
+                <span class="meta">pipeline</span>
+              </div>
+              <div class="tiny-list">
+                <div class="status-line"><span class="meta">feature sync</span><span class="num" id="healthSync">ok</span></div>
+                <div class="status-line"><span class="meta">confidence drift</span><span class="num" id="healthDrift">stable</span></div>
+                <div class="status-line"><span class="meta">last error</span><span class="num" id="healthError">none</span></div>
+                <div class="status-line"><span class="meta">transport</span><span class="num" id="healthTransport">ws://market-feed</span></div>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <footer class="pagefoot" data-od-id="footer">
+    <div class="row-between">
+      <span class="meta">Kronos production terminal shell</span>
+      <span class="meta">unified state · modular renderers · backend-ready structure</span>
+    </div>
+  </footer>
+
+  <script>
+    const initialState = {
+      ui: {
+        isRunning: false,
+        lastRefreshAt: null
+      },
+      controls: {
+        pair: 'BTC/USDT',
+        timeframe: '1h',
+        history: '30d',
+        model: 'Kronos-large',
+        exchange: 'Binance',
+        horizon: '12h'
+      },
+      market: {
+        price: 64483.03,
+        change24h: 1.42,
+        volume24h: 32400000000,
+        volatility: 3.12,
+        confidence: 84
+      },
+      forecast: {
+        latencyMs: 412,
+        projectedMovePct: 2.84,
+        expectedVolPct: 3.12,
+        candles: [],
+        projection: [],
+        forecastWindowLabel: '12h / 12 steps'
+      },
+      signal: {
+        direction: 'bullish',
+        confidencePct: 84,
+        spreadPct: 1.26,
+        horizon: '12h',
+        risk: 'medium',
+        updatedAt: '14:42:18Z',
+        summary: 'Continuation above local midpoint remains favored if spot volume stays above six-hour median.'
+      },
+      watchlist: [],
+      runs: [],
+      logs: [],
+      health: {
+        sync: 'ok',
+        drift: 'stable',
+        lastError: 'none',
+        transport: 'ws://market-feed'
+      }
+    };
+
+    const app = (() => {
+      const state = structuredClone(initialState);
+
+      const nodes = {
+        watchlist: document.getElementById('watchlist'),
+        sessionFeed: document.getElementById('sessionFeed'),
+        spotPrice: document.getElementById('spotPrice'),
+        spotPair: document.getElementById('spotPair'),
+        timeframe: document.getElementById('timeframe'),
+        history: document.getElementById('history'),
+        model: document.getElementById('model'),
+        exchange: document.getElementById('exchange'),
+        refreshButton: document.getElementById('refreshButton'),
+        runButton: document.getElementById('runButton'),
+        metricBar: document.getElementById('metricBar'),
+        candlesSvg: document.getElementById('candlesSvg'),
+        volumeSvg: document.getElementById('volumeSvg'),
+        axisStrip: document.getElementById('axisStrip'),
+        priceScale: document.getElementById('priceScale'),
+        forecastWindow: document.getElementById('forecastWindow'),
+        projectedMove: document.getElementById('projectedMove'),
+        expectedVol: document.getElementById('expectedVol'),
+        runLatency: document.getElementById('runLatency'),
+        resultsBody: document.getElementById('resultsBody'),
+        logFeed: document.getElementById('logFeed'),
+        signalPair: document.getElementById('signalPair'),
+        signalDirection: document.getElementById('signalDirection'),
+        signalConfidence: document.getElementById('signalConfidence'),
+        signalWindow: document.getElementById('signalWindow'),
+        signalSpread: document.getElementById('signalSpread'),
+        signalHorizon: document.getElementById('signalHorizon'),
+        signalRisk: document.getElementById('signalRisk'),
+        signalUpdated: document.getElementById('signalUpdated'),
+        signalDelta: document.getElementById('signalDelta'),
+        signalSummary: document.getElementById('signalSummary'),
+        healthSync: document.getElementById('healthSync'),
+        healthDrift: document.getElementById('healthDrift'),
+        healthError: document.getElementById('healthError'),
+        healthTransport: document.getElementById('healthTransport')
+      };
+
+      const formatPrice = (value) => '$' + value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const formatPct = (value) => (value >= 0 ? '+' : '') + value.toFixed(2) + '%';
+      const formatCompactCurrency = (value) => '$' + new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(value);
+      const formatTime = (date) => date.toISOString().slice(11, 19) + 'Z';
+      const formatDateTime = (date) => date.toISOString().slice(0, 16).replace('T', ' ');
+      const toneClass = (value) => value > 0 ? 'trend-positive' : value < 0 ? 'trend-negative' : '';
+      const signalToneClass = (direction) => direction === 'bullish' ? 'trend-positive' : direction === 'bearish' ? 'trend-negative' : '';
+
+      function patchState(target, source) {
+        Object.entries(source).forEach(([key, value]) => {
+          if (value && typeof value === 'object' && !Array.isArray(value)) {
+            if (!target[key] || typeof target[key] !== 'object' || Array.isArray(target[key])) {
+              target[key] = {};
+            }
+            patchState(target[key], value);
+          } else {
+            target[key] = value;
+          }
+        });
+      }
+
+      function setState(nextState) {
+        patchState(state, nextState);
+        renderAll();
+      }
+
+      function generateCandles(count) {
+        const candles = [];
+        let price = 64000 + Math.random() * 1200;
+        const now = new Date();
+        for (let index = 0; index < count; index += 1) {
+          const open = price;
+          const drift = (Math.random() - 0.45) * 620;
+          const close = open + drift;
+          const high = Math.max(open, close) + 80 + Math.random() * 280;
+          const low = Math.min(open, close) - 80 - Math.random() * 260;
+          const volume = 180000 + Math.random() * 820000;
+          const timestamp = new Date(now.getTime() - (count - index) * 60 * 60 * 1000);
+          candles.push({ open, high, low, close, volume, timestamp });
+          price = close;
+        }
+        return candles;
+      }
+
+      function createMockPayload(controls) {
+        const candles = generateCandles(36);
+        const lastClose = candles[candles.length - 1].close;
+        const projection = [];
+        let cursor = lastClose;
+
+        for (let step = 1; step <= 12; step += 1) {
+          cursor += (Math.random() - 0.38) * 320;
+          const spread = 180 + Math.random() * 220;
+          projection.push({
+            close: cursor,
+            upper: cursor + spread,
+            lower: cursor - spread,
+            timestamp: new Date(candles[candles.length - 1].timestamp.getTime() + step * 60 * 60 * 1000)
+          });
+        }
+
+        const projectedMovePct = ((projection[projection.length - 1].close - lastClose) / lastClose) * 100;
+        const change24h = (Math.random() - 0.42) * 5.8;
+        const confidencePct = Math.round(68 + Math.random() * 24);
+        const volatility = 2.2 + Math.random() * 2.7;
+        const direction = projectedMovePct > 1 ? 'bullish' : projectedMovePct < -1 ? 'bearish' : 'neutral';
+        const risk = Math.abs(projectedMovePct) > 2.8 ? 'high' : Math.abs(projectedMovePct) > 1.2 ? 'medium' : 'low';
+        const latencyMs = Math.round(280 + Math.random() * 210);
+        const forecastWindowLabel = controls.horizon + ' / ' + projection.length + ' steps';
+
+        return {
+          market: {
+            price: lastClose,
+            change24h,
+            volume24h: 18000000000 + Math.random() * 26000000000,
+            volatility,
+            confidence: confidencePct
+          },
+          forecast: {
+            latencyMs,
+            projectedMovePct,
+            expectedVolPct: volatility,
+            candles,
+            projection,
+            forecastWindowLabel
+          },
+          signal: {
+            direction,
+            confidencePct,
+            spreadPct: 0.82 + Math.random() * 1.2,
+            horizon: controls.horizon,
+            risk,
+            updatedAt: formatTime(new Date()),
+            summary: direction === 'bullish'
+              ? 'Continuation above local midpoint remains favored if spot volume stays above six-hour median.'
+              : direction === 'bearish'
+                ? 'Downside continuation remains in play if the next candle loses intraday VWAP and volume expands.'
+                : 'Range conditions persist; conviction is insufficient for directional allocation without a liquidity break.'
+          },
+          watchlist: [
+            { pair: 'BTC/USDT', venue: 'Binance · 1h', move: 0.8 + Math.random() * 3.2 },
+            { pair: 'ETH/USDT', venue: 'Coinbase · 4h', move: -1 + Math.random() * 2.3 },
+            { pair: 'SOL/USDT', venue: 'Bybit · 15m', move: -3 + Math.random() * 2.7 },
+            { pair: 'ARB/USDT', venue: 'Binance · 1h', move: -1.3 + Math.random() * 2.1 },
+            { pair: 'AVAX/USDT', venue: 'Kraken · 4h', move: -2.1 + Math.random() * 4.2 },
+            { pair: 'DOGE/USDT', venue: 'Binance · 5m', move: -0.7 + Math.random() * 2.4 }
+          ],
+          runs: Array.from({ length: 8 }, (_, index) => {
+            const timestamp = new Date(Date.now() - index * 54 * 60 * 1000);
+            const prediction = index % 3 === 0 ? 'bullish' : index % 3 === 1 ? 'neutral' : 'bearish';
+            return {
+              timestamp: formatDateTime(timestamp),
+              pair: controls.pair,
+              model: controls.model,
+              prediction,
+              confidence: (64 + Math.random() * 26).toFixed(1) + '%',
+              error: (0.42 + Math.random() * 1.96).toFixed(2) + '%'
+            };
+          }),
+          logs: [
+            { time: formatTime(new Date(Date.now() - 5 * 60000)), level: 'info', title: 'Market snapshot ingested', detail: 'Received 36 candles from ' + controls.exchange + ' for ' + controls.pair + '.' },
+            { time: formatTime(new Date(Date.now() - 3 * 60000)), level: 'info', title: 'Feature window normalized', detail: 'Scaled price, spread and volume features for ' + controls.timeframe + ' inference.' },
+            { time: formatTime(new Date(Date.now() - 2 * 60000)), level: risk === 'high' ? 'warning' : 'info', title: 'Confidence band generated', detail: 'Computed P10/P90 interval for horizon ' + controls.horizon + '.' },
+            { time: formatTime(new Date(Date.now() - 60000)), level: 'info', title: 'Forecast persisted', detail: 'Stored run metadata for audit replay and model comparison.' }
+          ],
+          health: {
+            sync: 'ok',
+            drift: risk === 'high' ? 'watch' : 'stable',
+            lastError: 'none',
+            transport: 'ws://market-feed'
+          }
+        };
+      }
+
+      function syncControlsFromInputs() {
+        state.controls.timeframe = nodes.timeframe.value;
+        state.controls.history = nodes.history.value;
+        state.controls.model = nodes.model.value;
+        state.controls.exchange = nodes.exchange.value;
+      }
+
+      function renderToolbar() {
+        nodes.spotPrice.textContent = formatPrice(state.market.price);
+        nodes.spotPair.textContent = state.controls.pair;
+        nodes.runButton.disabled = state.ui.isRunning;
+        nodes.refreshButton.disabled = state.ui.isRunning;
+        nodes.runButton.textContent = state.ui.isRunning ? 'Running…' : 'Run Forecast';
+      }
+
+      function renderMetrics() {
+        const metrics = [
+          { label: '24h change', value: formatPct(state.market.change24h), tone: state.market.change24h, foot: 'rolling delta' },
+          { label: '24h volume', value: formatCompactCurrency(state.market.volume24h), tone: 0, foot: 'aggregated' },
+          { label: 'volatility', value: state.market.volatility.toFixed(2) + '%', tone: 0, foot: 'realized sigma' },
+          { label: 'confidence', value: state.market.confidence.toFixed(0) + '%', tone: state.signal.direction === 'bullish' ? 1 : state.signal.direction === 'bearish' ? -1 : 0, foot: state.signal.direction }
+        ];
+
+        nodes.metricBar.innerHTML = metrics.map((metric) => `
+          <article class="metric">
+            <span class="meta">${metric.label}</span>
+            <strong class="metric-value num ${toneClass(metric.tone)}">${metric.value}</strong>
+            <div class="metric-foot">
+              <span class="meta">${metric.foot}</span>
+            </div>
+          </article>
+        `).join('');
+      }
+
+      function renderWatchlist() {
+        nodes.watchlist.innerHTML = state.watchlist.map((item) => `
+          <div class="watch-row">
+            <div class="watch-main">
+              <strong>${item.pair}</strong>
+              <span class="meta">${item.venue}</span>
+            </div>
+            <span class="num ${toneClass(item.move)}">${item.move >= 0 ? '+' : ''}${item.move.toFixed(2)}%</span>
+          </div>
+        `).join('');
+      }
+
+      function renderSignal() {
+        nodes.signalPair.textContent = state.controls.pair;
+        nodes.signalDirection.textContent = state.signal.direction;
+        nodes.signalDirection.className = 'num ' + signalToneClass(state.signal.direction);
+        nodes.signalConfidence.textContent = state.signal.confidencePct.toFixed(0) + '%';
+        nodes.signalConfidence.className = 'num ' + signalToneClass(state.signal.direction);
+        nodes.signalWindow.textContent = state.forecast.forecastWindowLabel;
+        nodes.signalSpread.textContent = state.signal.spreadPct.toFixed(2) + '%';
+        nodes.signalHorizon.textContent = state.signal.horizon;
+        nodes.signalRisk.textContent = state.signal.risk;
+        nodes.signalRisk.className = 'num ' + (state.signal.risk === 'high' ? 'trend-negative' : state.signal.risk === 'medium' ? 'trend-warning' : 'trend-positive');
+        nodes.signalUpdated.textContent = state.signal.updatedAt;
+        nodes.signalDelta.textContent = formatPct(state.market.change24h);
+        nodes.signalDelta.className = 'num ' + toneClass(state.market.change24h);
+        nodes.signalSummary.textContent = state.signal.summary;
+      }
+
+      function renderHealth() {
+        nodes.sessionFeed.textContent = state.ui.isRunning ? 'updating' : 'streaming';
+        nodes.healthSync.textContent = state.health.sync;
+        nodes.healthDrift.textContent = state.health.drift;
+        nodes.healthDrift.className = 'num ' + (state.health.drift === 'watch' ? 'trend-warning' : '');
+        nodes.healthError.textContent = state.health.lastError;
+        nodes.healthError.className = 'num ' + (state.health.lastError === 'none' ? '' : 'trend-negative');
+        nodes.healthTransport.textContent = state.health.transport;
+      }
+
+      function renderRuns() {
+        nodes.resultsBody.innerHTML = state.runs.map((row) => `
+          <tr>
+            <td class="num">${row.timestamp}</td>
+            <td class="num">${row.pair}</td>
+            <td>${row.model}</td>
+            <td class="${signalToneClass(row.prediction)}">${row.prediction}</td>
+            <td class="num-col">${row.confidence}</td>
+            <td class="num-col">${row.error}</td>
+          </tr>
+        `).join('');
+      }
+
+      function renderLogs() {
+        nodes.logFeed.innerHTML = state.logs.map((entry) => `
+          <article class="log-entry">
+            <span class="meta ${entry.level === 'warning' ? 'trend-warning' : entry.level === 'error' ? 'trend-negative' : ''}">${entry.time}</span>
+            <div>
+              <strong class="${entry.level === 'warning' ? 'trend-warning' : entry.level === 'error' ? 'trend-negative' : ''}">${entry.title}</strong>
+              <span class="lead">${entry.detail}</span>
+            </div>
+          </article>
+        `).join('');
+      }
+
+      function pathFromPoints(points) {
+        return points.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x} ${point.y}`).join(' ');
+      }
+
+      function renderChart() {
+        const history = state.forecast.candles;
+        const projection = state.forecast.projection;
+        if (!history.length || !projection.length) return;
+
+        const allHighs = history.map((item) => item.high).concat(projection.map((item) => item.upper));
+        const allLows = history.map((item) => item.low).concat(projection.map((item) => item.lower));
+        const max = Math.max(...allHighs);
+        const min = Math.min(...allLows);
+        const width = 1080;
+        const height = 520;
+        const volumeHeight = 90;
+        const candleWidth = 10;
+        const totalPoints = history.length + projection.length;
+        const xStep = width / (totalPoints + 2);
+        const maxVolume = Math.max(...history.map((item) => item.volume));
+        const toY = (value) => height - ((value - min) / (max - min)) * (height - 24) - 12;
+
+        const guides = Array.from({ length: 6 }, (_, index) => {
+          const y = 12 + index * ((height - 24) / 5);
+          return `<line x1="0" y1="${y}" x2="${width}" y2="${y}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2 6"></line>`;
+        }).join('');
+
+        const candles = history.map((item, index) => {
+          const x = (index + 1) * xStep;
+          const openY = toY(item.open);
+          const closeY = toY(item.close);
+          const highY = toY(item.high);
+          const lowY = toY(item.low);
+          const bodyY = Math.min(openY, closeY);
+          const bodyHeight = Math.max(Math.abs(closeY - openY), 2);
+          const color = item.close >= item.open ? 'var(--good)' : 'var(--bad)';
+          return `
+            <line x1="${x}" y1="${highY}" x2="${x}" y2="${lowY}" stroke="${color}" stroke-width="1"></line>
+            <rect x="${x - candleWidth / 2}" y="${bodyY}" width="${candleWidth}" height="${bodyHeight}" fill="${color}"></rect>
+          `;
+        }).join('');
+
+        const forecastPoints = projection.map((item, index) => ({
+          x: (history.length + index + 1) * xStep,
+          y: toY(item.close)
+        }));
+        const upperPoints = projection.map((item, index) => ({
+          x: (history.length + index + 1) * xStep,
+          y: toY(item.upper)
+        }));
+        const lowerPoints = projection.map((item, index) => ({
+          x: (history.length + index + 1) * xStep,
+          y: toY(item.lower)
+        }));
+        const bandPath = pathFromPoints(upperPoints) + ' ' + lowerPoints.slice().reverse().map((point) => `L${point.x} ${point.y}`).join(' ') + ' Z';
+
+        nodes.candlesSvg.innerHTML = `
+          ${guides}
+          ${candles}
+          <path d="${bandPath}" fill="var(--accent-soft)" stroke="none"></path>
+          <path d="${pathFromPoints(forecastPoints)}" fill="none" stroke="var(--fg)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+          <line x1="${history.length * xStep + xStep / 2}" y1="0" x2="${history.length * xStep + xStep / 2}" y2="${height}" stroke="var(--border)" stroke-width="1"></line>
+        `;
+
+        nodes.volumeSvg.innerHTML = history.map((item, index) => {
+          const x = (index + 1) * xStep;
+          const barHeight = (item.volume / maxVolume) * (volumeHeight - 10);
+          return `<rect x="${x - 5}" y="${volumeHeight - barHeight}" width="10" height="${barHeight}" fill="var(--fg-soft)"></rect>`;
+        }).join('');
+
+        nodes.axisStrip.innerHTML = [
+          history[0].timestamp,
+          history[11].timestamp,
+          history[23].timestamp,
+          history[35].timestamp,
+          projection[projection.length - 1].timestamp
+        ].map((timestamp) => `<span>${timestamp.toISOString().slice(5, 10)}</span>`).join('');
+
+        nodes.priceScale.innerHTML = [
+          max,
+          max - (max - min) * 0.25,
+          max - (max - min) * 0.5,
+          max - (max - min) * 0.75,
+          min
+        ].map((value) => `<span>${value.toFixed(0)}</span>`).join('');
+
+        nodes.forecastWindow.textContent = state.forecast.forecastWindowLabel;
+        nodes.projectedMove.textContent = formatPct(state.forecast.projectedMovePct);
+        nodes.projectedMove.className = 'num ' + toneClass(state.forecast.projectedMovePct);
+        nodes.expectedVol.textContent = state.forecast.expectedVolPct.toFixed(2) + '%';
+        nodes.runLatency.textContent = state.forecast.latencyMs + ' ms';
+      }
+
+      function renderAll() {
+        renderToolbar();
+        renderMetrics();
+        renderWatchlist();
+        renderSignal();
+        renderHealth();
+        renderRuns();
+        renderLogs();
+        renderChart();
+      }
+
+      function runForecast() {
+        syncControlsFromInputs();
+        setState({
+          ui: { isRunning: true },
+          logs: [
+            { time: formatTime(new Date()), level: 'info', title: 'Forecast queued', detail: 'Submitting run for ' + state.controls.pair + ' on ' + state.controls.exchange + '.' },
+            ...state.logs.slice(0, 3)
+          ]
+        });
+
+        window.setTimeout(() => {
+          const payload = createMockPayload(state.controls);
+          setState({
+            ui: { isRunning: false, lastRefreshAt: new Date().toISOString() },
+            market: payload.market,
+            forecast: payload.forecast,
+            signal: payload.signal,
+            watchlist: payload.watchlist,
+            runs: payload.runs,
+            logs: [
+              { time: formatTime(new Date()), level: 'info', title: 'Inference completed', detail: state.controls.model + ' produced a new forecast for ' + state.controls.pair + '.' },
+              ...payload.logs
+            ],
+            health: payload.health
+          });
+        }, 850);
+      }
+
+      function refreshFeed() {
+        syncControlsFromInputs();
+        const payload = createMockPayload(state.controls);
+        setState({
+          ui: { lastRefreshAt: new Date().toISOString() },
+          market: payload.market,
+          forecast: payload.forecast,
+          signal: payload.signal,
+          watchlist: payload.watchlist,
+          runs: payload.runs,
+          logs: [
+            { time: formatTime(new Date()), level: 'info', title: 'Feed refreshed', detail: 'Pulled latest market snapshot for ' + state.controls.pair + '.' },
+            ...payload.logs
+          ],
+          health: payload.health
+        });
+      }
+
+      function hydrateInitialState() {
+        const payload = createMockPayload(state.controls);
+        patchState(state, {
+          market: payload.market,
+          forecast: payload.forecast,
+          signal: payload.signal,
+          watchlist: payload.watchlist,
+          runs: payload.runs,
+          logs: payload.logs,
+          health: payload.health
+        });
+      }
+
+      function bindEvents() {
+        nodes.refreshButton.addEventListener('click', refreshFeed);
+        nodes.runButton.addEventListener('click', runForecast);
+        [nodes.timeframe, nodes.history, nodes.model, nodes.exchange].forEach((node) => {
+          node.addEventListener('change', syncControlsFromInputs);
+        });
+      }
+
+      function init() {
+        hydrateInitialState();
+        bindEvents();
+        renderAll();
+      }
+
+      return { init, setState, state };
+    })();
+
+    app.init();
+  </script>
+</body>
+</html>
