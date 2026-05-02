@@ -688,6 +688,10 @@
 
             <div class="toolbar-controls" aria-label="Forecast parameters">
               <div class="field">
+                <label for="pair">pair</label>
+                <input id="pair" class="input" type="text" value="BTC/USDT" />
+              </div>
+              <div class="field">
                 <label for="timeframe">tf</label>
                 <select id="timeframe" class="input">
                   <option>1m</option>
@@ -710,8 +714,8 @@
               <div class="field">
                 <label for="model">model</label>
                 <select id="model" class="input">
-                  <option>Kronos-base</option>
-                  <option selected>Kronos-large</option>
+                  <option>Kronos-small</option>
+                  <option selected>Kronos-base</option>
                   <option>Kronos-ensemble</option>
                 </select>
               </div>
@@ -878,7 +882,7 @@
         pair: 'BTC/USDT',
         timeframe: '1h',
         history: '30d',
-        model: 'Kronos-large',
+        model: 'Kronos-base',
         exchange: 'Binance',
         horizon: '12h'
       },
@@ -925,6 +929,7 @@
         sessionFeed: document.getElementById('sessionFeed'),
         spotPrice: document.getElementById('spotPrice'),
         spotPair: document.getElementById('spotPair'),
+        pair: document.getElementById('pair'),
         timeframe: document.getElementById('timeframe'),
         history: document.getElementById('history'),
         model: document.getElementById('model'),
@@ -1093,10 +1098,51 @@
       }
 
       function syncControlsFromInputs() {
+        state.controls.pair = nodes.pair.value.trim().toUpperCase() || 'BTC/USDT';
         state.controls.timeframe = nodes.timeframe.value;
         state.controls.history = nodes.history.value;
         state.controls.model = nodes.model.value;
         state.controls.exchange = nodes.exchange.value;
+      }
+
+      function normalizeApiPayload(payload) {
+        const normalized = structuredClone(payload);
+        if (normalized.forecast && Array.isArray(normalized.forecast.candles)) {
+          normalized.forecast.candles = normalized.forecast.candles.map((item) => ({
+            ...item,
+            timestamp: new Date(item.timestamp)
+          }));
+        }
+        if (normalized.forecast && Array.isArray(normalized.forecast.projection)) {
+          normalized.forecast.projection = normalized.forecast.projection.map((item) => ({
+            ...item,
+            timestamp: new Date(item.timestamp)
+          }));
+        }
+        return normalized;
+      }
+
+      async function requestForecast() {
+        const body = {
+          pair: state.controls.pair,
+          timeframe: state.controls.timeframe,
+          history: state.controls.history,
+          model: state.controls.model,
+          exchange: state.controls.exchange,
+          horizon_steps: 12
+        };
+        const response = await fetch('/api/forecast', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        if (!response.ok) {
+          const err = await response.json().catch(() => ({}));
+          const message = err.detail || ('HTTP ' + response.status);
+          throw new Error(message);
+        }
+        const payload = await response.json();
+        return normalizeApiPayload(payload);
       }
 
       function renderToolbar() {
@@ -1294,7 +1340,7 @@
         renderChart();
       }
 
-      function runForecast() {
+      async function runForecast() {
         syncControlsFromInputs();
         setState({
           ui: { isRunning: true },
@@ -1304,8 +1350,8 @@
           ]
         });
 
-        window.setTimeout(() => {
-          const payload = createMockPayload(state.controls);
+        try {
+          const payload = await requestForecast();
           setState({
             ui: { isRunning: false, lastRefreshAt: new Date().toISOString() },
             market: payload.market,
@@ -1319,25 +1365,57 @@
             ],
             health: payload.health
           });
-        }, 850);
+        } catch (error) {
+          const fallback = createMockPayload(state.controls);
+          setState({
+            ui: { isRunning: false, lastRefreshAt: new Date().toISOString() },
+            market: fallback.market,
+            forecast: fallback.forecast,
+            signal: fallback.signal,
+            watchlist: fallback.watchlist,
+            runs: fallback.runs,
+            logs: [
+              { time: formatTime(new Date()), level: 'error', title: 'Backend error', detail: String(error.message || error) },
+              ...fallback.logs
+            ],
+            health: { ...fallback.health, lastError: String(error.message || error) }
+          });
+        }
       }
 
-      function refreshFeed() {
+      async function refreshFeed() {
         syncControlsFromInputs();
-        const payload = createMockPayload(state.controls);
-        setState({
-          ui: { lastRefreshAt: new Date().toISOString() },
-          market: payload.market,
-          forecast: payload.forecast,
-          signal: payload.signal,
-          watchlist: payload.watchlist,
-          runs: payload.runs,
-          logs: [
-            { time: formatTime(new Date()), level: 'info', title: 'Feed refreshed', detail: 'Pulled latest market snapshot for ' + state.controls.pair + '.' },
-            ...payload.logs
-          ],
-          health: payload.health
-        });
+        try {
+          const payload = await requestForecast();
+          setState({
+            ui: { lastRefreshAt: new Date().toISOString() },
+            market: payload.market,
+            forecast: payload.forecast,
+            signal: payload.signal,
+            watchlist: payload.watchlist,
+            runs: payload.runs,
+            logs: [
+              { time: formatTime(new Date()), level: 'info', title: 'Feed refreshed', detail: 'Pulled latest market snapshot for ' + state.controls.pair + '.' },
+              ...payload.logs
+            ],
+            health: payload.health
+          });
+        } catch (error) {
+          const fallback = createMockPayload(state.controls);
+          setState({
+            ui: { lastRefreshAt: new Date().toISOString() },
+            market: fallback.market,
+            forecast: fallback.forecast,
+            signal: fallback.signal,
+            watchlist: fallback.watchlist,
+            runs: fallback.runs,
+            logs: [
+              { time: formatTime(new Date()), level: 'error', title: 'Backend error', detail: String(error.message || error) },
+              ...fallback.logs
+            ],
+            health: { ...fallback.health, lastError: String(error.message || error) }
+          });
+        }
       }
 
       function hydrateInitialState() {
@@ -1359,6 +1437,7 @@
         [nodes.timeframe, nodes.history, nodes.model, nodes.exchange].forEach((node) => {
           node.addEventListener('change', syncControlsFromInputs);
         });
+        nodes.pair.addEventListener('change', syncControlsFromInputs);
       }
 
       function init() {

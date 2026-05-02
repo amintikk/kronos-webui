@@ -1,0 +1,7 @@
+services:
+  kronos-webui:
+    build: .
+    container_name: kronos-webui
+    network_mode: host
+    command: ["uvicorn", "backend.app:app", "--host", "0.0.0.0", "--port", "18080"]
+    restart: unless-stopped
