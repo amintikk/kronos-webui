@@ -1,6 +1,13 @@
 # Kronos WebUI
 
-Terminal-style UI for Kronos forecasting with a real FastAPI backend, Dockerized deployment, probabilistic inference, and replayable saved runs.
+Production-ready web terminal for Kronos forecasting with a real FastAPI backend, Dockerized deployment, probabilistic inference, replayable runs, and online backtesting.
+
+## Metadata
+
+- **Description:** Web UI + API for Kronos probabilistic forecasting with saved-run replay and backtesting.
+- **Suggested Website:** `http://<SERVER_IP>:18080`
+- **Suggested Topics:** `kronos`, `forecasting`, `timeseries`, `crypto`, `fastapi`, `docker`, `binance`, `yfinance`, `sqlite`, `echarts`
+- **Primary Language:** `Python + JavaScript`
 
 ## Dashboard
 
@@ -8,12 +15,15 @@ Terminal-style UI for Kronos forecasting with a real FastAPI backend, Dockerized
 
 ## Features
 
-- Real market history from `Yahoo Finance` + `Binance` fallback.
+- Real market history from `Binance` (default) + `Yahoo Finance`.
 - Kronos model execution:
+  - `Kronos-mini`
   - `Kronos-small`
   - `Kronos-base`
   - `Kronos-ensemble`
 - Probabilistic forecast bands (`p10 / p50 / p90`) from stochastic sampling.
+- Adaptive context sizing based on market volatility regime.
+- Online backtesting for saved runs once forecast horizon expires.
 - Adjustable runtime controls:
   - pair (`BTCUSDT`, etc.)
   - timeframe
@@ -62,10 +72,10 @@ curl -X POST http://127.0.0.1:18080/api/forecast \
     "pair": "BTCUSDT",
     "timeframe": "1h",
     "history": "15d",
-    "model": "Kronos-base",
-    "exchange": "auto",
+    "model": "Kronos-mini",
+    "exchange": "binance",
     "horizon_steps": 24,
-    "sample_runs": 7
+    "sample_runs": 30
   }'
 ```
 
