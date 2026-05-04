@@ -7,7 +7,9 @@ import os
 from queue import Queue
 import sqlite3
 from threading import Thread
+from threading import Lock
 from typing import List, Literal, Optional
+from uuid import uuid4
 from urllib.parse import urlencode
 from urllib.request import urlopen
 from zoneinfo import ZoneInfo
@@ -21,15 +23,15 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from backend.kronos_engine import run_ensemble_forecast, run_forecast
+from backend.kronos_engine import run_ensemble_forecast, run_forecast, run_forecast_paths
 
 
 class ForecastRequest(BaseModel):
     pair: str = Field(default="BTCUSDT")
     timeframe: Literal["1m", "5m", "15m", "1h", "4h", "1d"] = "1h"
-    history: Literal["7d", "15d", "30d", "90d", "custom"] = "15d"
-    model: Literal["Kronos-small", "Kronos-base", "Kronos-ensemble"] = "Kronos-base"
-    exchange: Literal["auto", "yahoo", "binance"] = "auto"
+    history: Literal["1d", "2d", "3d", "7d", "15d", "30d", "60d", "90d", "custom"] = "15d"
+    model: Literal["Kronos-mini", "Kronos-small", "Kronos-base", "Kronos-ensemble"] = "Kronos-base"
+    exchange: Literal["auto", "yahoo", "binance"] = "binance"
     horizon_steps: int = Field(default=12, ge=4, le=120)
     sample_runs: int = Field(default=7, ge=1, le=40)
     start: Optional[str] = None
@@ -51,6 +53,9 @@ class SaveRunRequest(BaseModel):
 
 app = FastAPI(title="Kronos WebUI API", version="1.0.0")
 DB_PATH = os.getenv("DB_PATH", "/data/runs.sqlite3")
+JOBS: dict[str, dict] = {}
+JOBS_LOCK = Lock()
+MAX_JOBS = 100
 
 app.add_middleware(
     CORSMiddleware,
@@ -95,11 +100,171 @@ def init_db() -> None:
         cols = [row["name"] for row in conn.execute("PRAGMA table_info(runs)").fetchall()]
         if "response_json" not in cols:
             conn.execute("ALTER TABLE runs ADD COLUMN response_json TEXT NOT NULL DEFAULT '{}'")
+        if "actual_close" not in cols:
+            conn.execute("ALTER TABLE runs ADD COLUMN actual_close REAL")
+        if "backtest_error_pct" not in cols:
+            conn.execute("ALTER TABLE runs ADD COLUMN backtest_error_pct REAL")
+        if "backtest_abs_error_pct" not in cols:
+            conn.execute("ALTER TABLE runs ADD COLUMN backtest_abs_error_pct REAL")
+        if "evaluated_at" not in cols:
+            conn.execute("ALTER TABLE runs ADD COLUMN evaluated_at TEXT")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS forecast_jobs (
+              id TEXT PRIMARY KEY,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              status TEXT NOT NULL,
+              request_json TEXT NOT NULL,
+              events_json TEXT NOT NULL DEFAULT '[]',
+              result_json TEXT,
+              error_text TEXT,
+              cancel_requested INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_forecast_jobs_created_at ON forecast_jobs(created_at DESC)")
+
+
+def _persist_job(job: dict) -> None:
+    with get_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO forecast_jobs (id, created_at, updated_at, status, request_json, events_json, result_json, error_text, cancel_requested)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              updated_at=excluded.updated_at,
+              status=excluded.status,
+              request_json=excluded.request_json,
+              events_json=excluded.events_json,
+              result_json=excluded.result_json,
+              error_text=excluded.error_text,
+              cancel_requested=excluded.cancel_requested
+            """,
+            (
+                job["id"],
+                job["created_at"],
+                job["updated_at"],
+                job["status"],
+                json.dumps(job.get("request") or {}),
+                json.dumps(job.get("events") or []),
+                json.dumps(job.get("result")) if job.get("result") is not None else None,
+                job.get("error"),
+                int(bool(job.get("cancel_requested"))),
+            ),
+        )
+
+
+def _new_job(req: ForecastRequest) -> str:
+    job_id = uuid4().hex
+    now = datetime.now(timezone.utc).isoformat()
+    job = {
+        "id": job_id,
+        "status": "queued",
+        "created_at": now,
+        "updated_at": now,
+        "request": req.model_dump(),
+        "events": [],
+        "result": None,
+        "error": None,
+        "cancel_requested": False,
+    }
+    with JOBS_LOCK:
+        JOBS[job_id] = job
+        if len(JOBS) > MAX_JOBS:
+            ordered = sorted(JOBS.items(), key=lambda kv: kv[1].get("created_at", ""))
+            for old_id, _ in ordered[: max(0, len(JOBS) - MAX_JOBS)]:
+                JOBS.pop(old_id, None)
+    _persist_job(job)
+    return job_id
+
+
+def _append_job_event(job_id: str, stage: str, message: str, percent: int):
+    now = datetime.now(timezone.utc).isoformat()
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            return
+        events = job.setdefault("events", [])
+        events.append(
+            {
+                "idx": len(events),
+                "ts": now,
+                "stage": stage,
+                "message": message,
+                "percent": int(percent),
+            }
+        )
+        job["updated_at"] = now
+        _persist_job(job)
+
+
+def _set_job_state(job_id: str, *, status: str, result: Optional[dict] = None, error: Optional[str] = None):
+    now = datetime.now(timezone.utc).isoformat()
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            return
+        job["status"] = status
+        job["updated_at"] = now
+        job["result"] = result
+        job["error"] = error
+        _persist_job(job)
+
+
+def _get_job_row(job_id: str):
+    with get_db() as conn:
+        return conn.execute(
+            """
+            SELECT id, created_at, updated_at, status, request_json, events_json, result_json, error_text, cancel_requested
+            FROM forecast_jobs
+            WHERE id = ?
+            """,
+            (job_id,),
+        ).fetchone()
 
 
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, created_at, updated_at, status, request_json, events_json, result_json, error_text, cancel_requested FROM forecast_jobs ORDER BY datetime(created_at) DESC LIMIT ?",
+            (MAX_JOBS,),
+        ).fetchall()
+    with JOBS_LOCK:
+        JOBS.clear()
+        for row in rows:
+            try:
+                req_json = json.loads(row["request_json"] or "{}")
+            except Exception:
+                req_json = {}
+            try:
+                events = json.loads(row["events_json"] or "[]")
+            except Exception:
+                events = []
+            try:
+                result = json.loads(row["result_json"]) if row["result_json"] else None
+            except Exception:
+                result = None
+            status = str(row["status"] or "queued")
+            error_text = row["error_text"]
+            if status in ("queued", "running"):
+                status = "failed"
+                error_text = "Server restarted while job was running"
+            JOBS[str(row["id"])] = {
+                "id": str(row["id"]),
+                "created_at": str(row["created_at"]),
+                "updated_at": str(row["updated_at"]),
+                "status": status,
+                "request": req_json,
+                "events": events,
+                "result": result,
+                "error": error_text,
+                "cancel_requested": bool(int(row["cancel_requested"] or 0)),
+            }
+        for job in JOBS.values():
+            _persist_job(job)
 
 
 def pair_to_yahoo_symbol(pair: str) -> str:
@@ -138,9 +303,13 @@ def timeframe_to_interval(tf: str) -> str:
 
 def history_to_period(hist: str) -> str:
     mapping = {
+        "1d": "1d",
+        "2d": "2d",
+        "3d": "3d",
         "7d": "7d",
         "15d": "15d",
         "30d": "30d",
+        "60d": "60d",
         "90d": "90d",
         "custom": "90d",
     }
@@ -151,31 +320,132 @@ def binance_symbol_from_pair(pair: str) -> str:
     return pair.replace("/", "").upper()
 
 
-def fetch_binance_history(pair: str, timeframe: str, history: str) -> pd.DataFrame:
+def fetch_binance_history(
+    pair: str,
+    timeframe: str,
+    history: str,
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
+) -> pd.DataFrame:
     interval = timeframe
-    limits = {"7d": 300, "15d": 500, "30d": 800, "90d": 1000, "custom": 1000}
-    limit = limits.get(history, 800)
-    params = urlencode({"symbol": binance_symbol_from_pair(pair), "interval": interval, "limit": limit})
-    url = f"https://api.binance.com/api/v3/klines?{params}"
-    with urlopen(url, timeout=15) as resp:
-        rows = json.loads(resp.read().decode("utf-8"))
-    if not isinstance(rows, list) or not rows:
-        return pd.DataFrame()
+    symbol = binance_symbol_from_pair(pair)
+    step_seconds = max(1, int(infer_step_delta(timeframe).total_seconds()))
 
-    out = []
-    for r in rows:
-        out.append(
-            {
-                "ts": pd.to_datetime(int(r[0]), unit="ms", utc=True),
-                "Open": float(r[1]),
-                "High": float(r[2]),
-                "Low": float(r[3]),
-                "Close": float(r[4]),
-                "Volume": float(r[5]),
+    if start_time is not None:
+        if start_time.tzinfo is None:
+            start_time = start_time.replace(tzinfo=timezone.utc)
+        if end_time is None:
+            end_time = datetime.now(timezone.utc)
+        elif end_time.tzinfo is None:
+            end_time = end_time.replace(tzinfo=timezone.utc)
+
+        start_ms = int(start_time.timestamp() * 1000)
+        end_ms = int(end_time.timestamp() * 1000)
+        step_ms = step_seconds * 1000
+
+        collected = []
+        seen_open_times = set()
+        while start_ms < end_ms:
+            query = {
+                "symbol": symbol,
+                "interval": interval,
+                "limit": 1000,
+                "startTime": start_ms,
+                "endTime": end_ms,
             }
-        )
-    df = pd.DataFrame(out).set_index("ts").sort_index()
-    return df
+            params = urlencode(query)
+            url = f"https://api.binance.com/api/v3/klines?{params}"
+            with urlopen(url, timeout=20) as resp:
+                rows = json.loads(resp.read().decode("utf-8"))
+            if not isinstance(rows, list) or not rows:
+                break
+
+            for r in rows:
+                open_ms = int(r[0])
+                if open_ms in seen_open_times:
+                    continue
+                seen_open_times.add(open_ms)
+                collected.append(
+                    {
+                        "ts": pd.to_datetime(open_ms, unit="ms", utc=True),
+                        "Open": float(r[1]),
+                        "High": float(r[2]),
+                        "Low": float(r[3]),
+                        "Close": float(r[4]),
+                        "Volume": float(r[5]),
+                        "QuoteVolume": float(r[7]),
+                    }
+                )
+
+            last_open_ms = int(rows[-1][0])
+            next_start = last_open_ms + step_ms
+            if next_start <= start_ms:
+                break
+            start_ms = next_start
+
+            if len(rows) < 1000:
+                break
+
+        if not collected:
+            return pd.DataFrame()
+        df = pd.DataFrame(collected).set_index("ts").sort_index()
+        return df
+
+    days_by_history = {"1d": 1, "2d": 2, "3d": 3, "7d": 7, "15d": 15, "30d": 30, "60d": 60, "90d": 90, "custom": 90}
+    target_days = days_by_history.get(history, 30)
+    target_bars = int((target_days * 24 * 3600) / step_seconds) + 32
+    target_bars = max(300, min(8000, target_bars))
+
+    collected = []
+    seen_open_times = set()
+    end_time_ms: Optional[int] = None
+
+    while len(collected) < target_bars:
+        per_call = min(1000, target_bars - len(collected))
+        query = {"symbol": symbol, "interval": interval, "limit": per_call}
+        if end_time_ms is not None:
+            query["endTime"] = end_time_ms
+        params = urlencode(query)
+        url = f"https://api.binance.com/api/v3/klines?{params}"
+        with urlopen(url, timeout=20) as resp:
+            rows = json.loads(resp.read().decode("utf-8"))
+        if not isinstance(rows, list) or not rows:
+            break
+
+        chunk = []
+        for r in rows:
+            open_ms = int(r[0])
+            if open_ms in seen_open_times:
+                continue
+            seen_open_times.add(open_ms)
+            chunk.append(
+                {
+                    "ts": pd.to_datetime(open_ms, unit="ms", utc=True),
+                    "Open": float(r[1]),
+                    "High": float(r[2]),
+                    "Low": float(r[3]),
+                    "Close": float(r[4]),
+                    "Volume": float(r[5]),
+                    "QuoteVolume": float(r[7]),
+                }
+            )
+        if not chunk:
+            break
+
+        collected = chunk + collected
+        oldest_open_ms = int(rows[0][0])
+        next_end = oldest_open_ms - 1
+        if end_time_ms is not None and next_end >= end_time_ms:
+            break
+        end_time_ms = next_end
+
+        if len(rows) < per_call:
+            break
+
+    if not collected:
+        return pd.DataFrame()
+    df = pd.DataFrame(collected).set_index("ts").sort_index()
+    return df.tail(target_bars)
 
 
 def fetch_history(symbol: str, req: ForecastRequest, interval: str) -> pd.DataFrame:
@@ -272,7 +542,10 @@ def to_ohlcva(df: pd.DataFrame) -> pd.DataFrame:
             "volume": df["Volume"].fillna(0).astype(float),
         }
     )
-    out["amount"] = out["close"] * out["volume"]
+    if "QuoteVolume" in df.columns:
+        out["amount"] = df["QuoteVolume"].fillna(0).astype(float)
+    else:
+        out["amount"] = out["close"] * out["volume"]
     return out
 
 
@@ -302,21 +575,51 @@ def compute_probabilistic_bands(
     sample_runs: int,
     progress_cb=None,
 ) -> dict:
-    close_paths = []
-    volume_paths = []
-    for _ in range(sample_runs):
-        run_idx = len(close_paths) + 1
-        if progress_cb:
-            progress_cb("inference", f"Running stochastic sample {run_idx}/{sample_runs}", 55 + int((run_idx - 1) * 30 / max(1, sample_runs)))
-        if req.model == "Kronos-ensemble":
-            sample_df = run_ensemble_forecast(x_df, x_ts, y_ts, steps)
-        else:
-            sample_df = run_forecast(req.model, x_df, x_ts, y_ts, steps)
-        close_paths.append(sample_df["close"].astype(float).to_numpy())
-        volume_paths.append(sample_df["volume"].astype(float).to_numpy())
+    def emit_progress(done: int, total: int):
+        if not progress_cb:
+            return
+        pct = 55 + int((max(0, min(done, total))) * 29 / max(1, total))
+        progress_cb("inference", f"Running stochastic batch {done}/{total}", pct)
 
-    close_arr = np.asarray(close_paths)  # [runs, steps]
-    vol_arr = np.asarray(volume_paths)   # [runs, steps]
+    batch_size = 1
+    if req.model == "Kronos-ensemble":
+        close_small_parts = []
+        vol_small_parts = []
+        close_base_parts = []
+        vol_base_parts = []
+        done = 0
+        while done < sample_runs:
+            take = min(batch_size, sample_runs - done)
+            emit_progress(done + 1, sample_runs)
+            c_s, v_s = run_forecast_paths("Kronos-small", x_df, x_ts, y_ts, steps, take)
+            c_b, v_b = run_forecast_paths("Kronos-base", x_df, x_ts, y_ts, steps, take)
+            close_small_parts.append(c_s)
+            vol_small_parts.append(v_s)
+            close_base_parts.append(c_b)
+            vol_base_parts.append(v_b)
+            done += take
+            emit_progress(done, sample_runs)
+        close_small = np.concatenate(close_small_parts, axis=0)
+        vol_small = np.concatenate(vol_small_parts, axis=0)
+        close_base = np.concatenate(close_base_parts, axis=0)
+        vol_base = np.concatenate(vol_base_parts, axis=0)
+        close_arr = (close_small + close_base) / 2.0
+        vol_arr = (vol_small + vol_base) / 2.0
+    else:
+        close_parts = []
+        vol_parts = []
+        done = 0
+        while done < sample_runs:
+            take = min(batch_size, sample_runs - done)
+            emit_progress(done + 1, sample_runs)
+            c, v = run_forecast_paths(req.model, x_df, x_ts, y_ts, steps, take)
+            close_parts.append(c)
+            vol_parts.append(v)
+            done += take
+            emit_progress(done, sample_runs)
+        close_arr = np.concatenate(close_parts, axis=0)
+        vol_arr = np.concatenate(vol_parts, axis=0)
+
     return {
         "close_p10": np.quantile(close_arr, 0.10, axis=0),
         "close_p50": np.quantile(close_arr, 0.50, axis=0),
@@ -349,7 +652,7 @@ def build_response(
     direction = "bullish" if projected_move > 0.75 else "bearish" if projected_move < -0.75 else "neutral"
     risk = "high" if abs(projected_move) > 3.0 else "medium" if abs(projected_move) > 1.5 else "low"
 
-    days_by_history = {"7d": 7, "15d": 15, "30d": 30, "90d": 90, "custom": 90}
+    days_by_history = {"1d": 1, "2d": 2, "3d": 3, "7d": 7, "15d": 15, "30d": 30, "60d": 60, "90d": 90, "custom": 90}
     step = infer_step_delta(req.timeframe)
     target_points = int((days_by_history.get(req.history, 30) * 24 * 3600) / max(1.0, step.total_seconds()))
     target_points = max(80, min(2000, target_points))
@@ -541,11 +844,108 @@ def save_run(
         )
 
 
-def fetch_recent_runs(limit: int = 20) -> List[dict]:
+def fetch_realized_close_for_run(row: sqlite3.Row, target_time: datetime) -> Optional[float]:
+    pair = str(row["pair"])
+    timeframe = str(row["timeframe"])
+    exchange_mode = str(row["exchange_mode"] or "binance")
+    step = infer_step_delta(timeframe)
+    start = target_time - step
+    end = target_time + step * 2
+
+    try:
+        if exchange_mode == "binance":
+            df = fetch_binance_history(pair, timeframe, "custom", start_time=start, end_time=end)
+        elif exchange_mode == "yahoo":
+            req = ForecastRequest(
+                pair=pair, timeframe=timeframe, history="custom", model="Kronos-base", exchange="yahoo",
+                horizon_steps=12, start=start.isoformat(), end=end.isoformat()
+            )
+            df = fetch_history(pair_to_yahoo_symbol(pair), req, timeframe_to_interval(timeframe))
+            if df is not None and not df.empty:
+                df.index = pd.to_datetime(df.index, utc=True)
+                df = resample_if_needed(df, timeframe)
+        else:
+            df = fetch_binance_history(pair, timeframe, "custom", start_time=start, end_time=end)
+    except Exception:
+        return None
+
+    if df is None or df.empty:
+        return None
+    df = df.sort_index()
+    target_ts = pd.Timestamp(target_time)
+    if target_ts.tzinfo is None:
+        target_ts = target_ts.tz_localize("UTC")
+    else:
+        target_ts = target_ts.tz_convert("UTC")
+    deltas = (df.index - target_ts).asi8
+    closest_pos = int(np.abs(deltas).argmin())
+    return float(df.iloc[closest_pos]["Close"])
+
+
+def evaluate_due_runs(max_rows: int = 100) -> None:
+    now_utc = datetime.now(timezone.utc)
     with get_db() as conn:
         rows = conn.execute(
             """
-            SELECT id, created_at, pair, model, projected_move_pct, confidence, risk
+            SELECT id, created_at, pair, timeframe, exchange_mode, horizon_steps, projected_close, actual_close
+            FROM runs
+            WHERE actual_close IS NULL
+            ORDER BY datetime(created_at) DESC
+            LIMIT ?
+            """,
+            (max_rows,),
+        ).fetchall()
+
+        for row in rows:
+            try:
+                created_at = datetime.fromisoformat(str(row["created_at"]))
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+            except Exception:
+                continue
+
+            step = infer_step_delta(str(row["timeframe"]))
+            horizon_steps = int(row["horizon_steps"] or 0)
+            if horizon_steps <= 0:
+                continue
+            target_time = created_at + step * horizon_steps
+            if now_utc < target_time:
+                continue
+
+            actual_close = fetch_realized_close_for_run(row, target_time)
+            if actual_close is None:
+                continue
+
+            projected_close = float(row["projected_close"] or 0.0)
+            if projected_close == 0:
+                err_pct = None
+                abs_err_pct = None
+            else:
+                err_pct = ((actual_close - projected_close) / abs(projected_close)) * 100.0
+                abs_err_pct = abs(err_pct)
+
+            conn.execute(
+                """
+                UPDATE runs
+                SET actual_close = ?, backtest_error_pct = ?, backtest_abs_error_pct = ?, evaluated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    actual_close,
+                    float(err_pct) if err_pct is not None else None,
+                    float(abs_err_pct) if abs_err_pct is not None else None,
+                    datetime.now(timezone.utc).isoformat(),
+                    int(row["id"]),
+                ),
+            )
+
+
+def fetch_recent_runs(limit: int = 20) -> List[dict]:
+    evaluate_due_runs(max_rows=200)
+    with get_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, created_at, pair, model, projected_move_pct, confidence, risk, backtest_abs_error_pct
             FROM runs
             ORDER BY datetime(created_at) DESC
             LIMIT ?
@@ -563,7 +963,11 @@ def fetch_recent_runs(limit: int = 20) -> List[dict]:
                 "model": row["model"],
                 "prediction": "bullish" if row["projected_move_pct"] > 0 else "bearish" if row["projected_move_pct"] < 0 else "neutral",
                 "confidence": f'{float(row["confidence"]):.1f}%',
-                "error": f'{abs(float(row["projected_move_pct"])):.2f}%',
+                "error": (
+                    f'{float(row["backtest_abs_error_pct"]):.2f}%'
+                    if row["backtest_abs_error_pct"] is not None
+                    else f'{abs(float(row["projected_move_pct"])):.2f}%'
+                ),
                 "risk": row["risk"],
             }
         )
@@ -624,7 +1028,34 @@ def compute_forecast_response(req: ForecastRequest, progress_cb=None) -> dict:
         raise HTTPException(status_code=422, detail="Insufficient history after preprocessing")
     emit("preprocess", f"Preprocessing complete ({len(data)} clean rows)", 40)
 
-    data_for_model = data.tail(min(512, max(needed, 160)))
+    # Use only closed candles: drop the last bar only if it is still in progress.
+    data_for_model = data.copy()
+    if len(data_for_model) > 81:
+        step = infer_step_delta(req.timeframe)
+        last_ts = pd.Timestamp(data_for_model.index[-1])
+        if last_ts.tzinfo is None:
+            last_ts = last_ts.tz_localize("UTC")
+        now_utc = pd.Timestamp(datetime.now(timezone.utc))
+        last_bar_closed = now_utc >= (last_ts + step)
+        if not last_bar_closed:
+            data_for_model = data_for_model.iloc[:-1]
+
+    # Volatility-adaptive context: larger memory in high-vol regimes.
+    recent_returns = data_for_model["Close"].astype(float).pct_change().dropna().tail(96)
+    realized_vol_pct = float(recent_returns.std() * 100.0) if len(recent_returns) > 2 else 0.0
+    if realized_vol_pct >= 1.8:
+        regime = "high-vol"
+        adaptive_context = 512
+    elif realized_vol_pct >= 0.9:
+        regime = "mid-vol"
+        adaptive_context = 384
+    else:
+        regime = "low-vol"
+        adaptive_context = 256
+    context_len = min(512, max(needed, adaptive_context))
+    emit("preprocess", f"Adaptive context={context_len} ({regime}, vol={realized_vol_pct:.2f}%)", 45)
+
+    data_for_model = data_for_model.tail(context_len)
     x_df = to_ohlcva(data_for_model)
     x_ts = pd.Series(data_for_model.index)
     step = infer_step_delta(req.timeframe)
@@ -662,6 +1093,37 @@ def compute_forecast_response(req: ForecastRequest, progress_cb=None) -> dict:
         infer_note=f"Model {req.model} generated {req.horizon_steps} forecast steps with {sample_runs} stochastic runs (p10/p50/p90).",
         prob_bands=prob_bands,
     )
+
+    # Quality gate: de-risk ambiguous forecasts with wide uncertainty.
+    try:
+        spot = float(response.get("market", {}).get("price") or 0.0)
+        upside_24 = response.get("analytics", {}).get("upside_probability_next_24h")
+        p10 = prob_bands.get("close_p10") if prob_bands else None
+        p90 = prob_bands.get("close_p90") if prob_bands else None
+        last_band_pct = None
+        if p10 is not None and p90 is not None and len(p10) and len(p90) and spot > 0:
+            last_band_pct = float((float(p90[-1]) - float(p10[-1])) / spot * 100.0)
+
+        ambiguous_upside = isinstance(upside_24, (int, float)) and 45.0 <= float(upside_24) <= 55.0
+        wide_band = isinstance(last_band_pct, float) and last_band_pct >= 3.0
+        if ambiguous_upside and wide_band:
+            response["signal"]["direction"] = "neutral"
+            response["signal"]["risk"] = "high"
+            response["signal"]["confidencePct"] = min(int(response["signal"].get("confidencePct", 60)), 60)
+            response["signal"]["summary"] = (
+                "Señal neutral por quality gate: incertidumbre alta y probabilidad alcista cercana a 50%."
+            )
+            response["logs"] = [
+                {
+                    "time": datetime.now(ZoneInfo("Europe/Madrid")).strftime("%H:%M:%S"),
+                    "level": "warning",
+                    "title": "Quality gate active",
+                    "detail": f"Ambiguous upside ({float(upside_24):.1f}%) with wide forecast band ({float(last_band_pct):.2f}%).",
+                }
+            ] + response.get("logs", [])
+    except Exception:
+        pass
+
     response["runs"] = fetch_recent_runs(limit=20)
     response["request_context"] = req.model_dump()
     response["source_note"] = source_note
@@ -669,24 +1131,50 @@ def compute_forecast_response(req: ForecastRequest, progress_cb=None) -> dict:
     return response
 
 
-def load_history_for_run_context(pair: str, timeframe: str, history: str, exchange_mode: str) -> tuple[pd.DataFrame, str]:
+def load_history_for_run_context(
+    pair: str,
+    timeframe: str,
+    history: str,
+    exchange_mode: str,
+    min_days: Optional[int] = None,
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
+) -> tuple[pd.DataFrame, str]:
     symbol = pair_to_yahoo_symbol(pair)
     interval = timeframe_to_interval(timeframe)
+    replay_history = history
+    if min_days is not None:
+        d = max(1, int(min_days))
+        if d <= 7:
+            replay_history = "7d"
+        elif d <= 15:
+            replay_history = "15d"
+        elif d <= 30:
+            replay_history = "30d"
+        else:
+            replay_history = "90d"
     req = ForecastRequest(
         pair=pair,
         timeframe=timeframe,
-        history=history,
+        history=replay_history,
         model="Kronos-base",
-        exchange=exchange_mode if exchange_mode in ("auto", "yahoo", "binance") else "auto",
+        exchange=exchange_mode if exchange_mode in ("auto", "yahoo", "binance") else "binance",
         horizon_steps=12,
     )
     data = pd.DataFrame()
     source_note = ""
     if req.exchange == "yahoo":
-        data = fetch_history(symbol, req, interval)
+        if min_days is not None:
+            ticker = yf.Ticker(symbol)
+            data = ticker.history(period=f"{max(7, int(min_days))}d", interval=interval, auto_adjust=False)
+        else:
+            data = fetch_history(symbol, req, interval)
         source_note = "Yahoo Finance"
     elif req.exchange == "binance":
-        data = fetch_binance_history(req.pair, req.timeframe, req.history)
+        data = fetch_binance_history(req.pair, req.timeframe, req.history, start_time=start_time, end_time=end_time)
+        if (data is None or data.empty) and min_days is not None:
+            # Fallback for very recent runs/timeframes where exact range returns no bar yet.
+            data = fetch_binance_history(req.pair, req.timeframe, req.history)
         source_note = "Binance public klines"
     else:
         try:
@@ -695,7 +1183,7 @@ def load_history_for_run_context(pair: str, timeframe: str, history: str, exchan
         except Exception:
             data = pd.DataFrame()
         if data is None or data.empty:
-            data = fetch_binance_history(req.pair, req.timeframe, req.history)
+            data = fetch_binance_history(req.pair, req.timeframe, req.history, start_time=start_time, end_time=end_time)
             source_note = "Binance public klines (auto-fallback)"
     if data is None or data.empty:
         raise HTTPException(status_code=502, detail="Could not load updated history for replay")
@@ -759,6 +1247,102 @@ def forecast_stream(req: ForecastRequest):
     return StreamingResponse(event_stream(), media_type="application/x-ndjson")
 
 
+@app.post("/api/forecast/jobs")
+def forecast_job_start(req: ForecastRequest):
+    job_id = _new_job(req)
+    _set_job_state(job_id, status="running")
+    _append_job_event(job_id, "start", "Job accepted", 1)
+
+    def progress_cb(stage: str, message: str, percent: int):
+        with JOBS_LOCK:
+            job = JOBS.get(job_id)
+            if job and job.get("cancel_requested"):
+                raise RuntimeError("Job cancelled by user")
+        _append_job_event(job_id, stage, message, percent)
+
+    def worker():
+        try:
+            result = compute_forecast_response(req=req, progress_cb=progress_cb)
+            _append_job_event(job_id, "done", "Response assembled", 100)
+            _set_job_state(job_id, status="completed", result=result, error=None)
+        except HTTPException as exc:
+            _append_job_event(job_id, "error", str(exc.detail), 100)
+            _set_job_state(job_id, status="failed", result=None, error=str(exc.detail))
+        except Exception as exc:
+            msg = str(exc)
+            if "cancelled" in msg.lower():
+                _append_job_event(job_id, "cancelled", msg, 100)
+                _set_job_state(job_id, status="cancelled", result=None, error=msg)
+            else:
+                _append_job_event(job_id, "error", msg, 100)
+                _set_job_state(job_id, status="failed", result=None, error=msg)
+
+    Thread(target=worker, daemon=True).start()
+    return {"ok": True, "job_id": job_id}
+
+
+@app.get("/api/forecast/jobs/{job_id}")
+def forecast_job_status(job_id: str, after: int = -1):
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            row = _get_job_row(job_id)
+            if row is None:
+                raise HTTPException(status_code=404, detail="Job not found")
+            try:
+                req_json = json.loads(row["request_json"] or "{}")
+            except Exception:
+                req_json = {}
+            try:
+                events_json = json.loads(row["events_json"] or "[]")
+            except Exception:
+                events_json = []
+            try:
+                result_json = json.loads(row["result_json"]) if row["result_json"] else None
+            except Exception:
+                result_json = None
+            job = {
+                "id": str(row["id"]),
+                "status": str(row["status"]),
+                "created_at": str(row["created_at"]),
+                "updated_at": str(row["updated_at"]),
+                "request": req_json,
+                "events": events_json,
+                "result": result_json,
+                "error": row["error_text"],
+                "cancel_requested": bool(int(row["cancel_requested"] or 0)),
+            }
+            JOBS[job_id] = job
+        events = [e for e in job.get("events", []) if int(e.get("idx", -1)) > after]
+        payload = {
+            "id": job["id"],
+            "status": job["status"],
+            "created_at": job["created_at"],
+            "updated_at": job["updated_at"],
+            "events": events,
+            "error": job.get("error"),
+            "result": job.get("result") if job["status"] == "completed" else None,
+        }
+    return payload
+
+
+@app.delete("/api/forecast/jobs/{job_id}")
+def forecast_job_cancel(job_id: str):
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            row = _get_job_row(job_id)
+            if row is None:
+                raise HTTPException(status_code=404, detail="Job not found")
+            raise HTTPException(status_code=409, detail="Job not loaded; retry status endpoint first")
+        if job["status"] in ("completed", "failed", "cancelled"):
+            return {"ok": True, "status": job["status"]}
+        job["cancel_requested"] = True
+        _persist_job(job)
+    _append_job_event(job_id, "cancel", "Cancellation requested", 100)
+    return {"ok": True, "status": "cancelling"}
+
+
 @app.post("/api/runs/save")
 def save_run_endpoint(body: SaveRunRequest):
     save_run(req=body.request, response=body.response, source_note=body.source_note or "Manual save")
@@ -768,6 +1352,16 @@ def save_run_endpoint(body: SaveRunRequest):
 @app.get("/api/runs")
 def list_saved_runs():
     return {"runs": fetch_recent_runs(limit=50)}
+
+
+@app.delete("/api/runs/{run_id}")
+def delete_saved_run(run_id: int):
+    with get_db() as conn:
+        row = conn.execute("SELECT id FROM runs WHERE id = ?", (run_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+        conn.execute("DELETE FROM runs WHERE id = ?", (run_id,))
+    return {"ok": True, "runs": fetch_recent_runs(limit=50)}
 
 
 @app.get("/api/runs/{run_id}")
@@ -795,11 +1389,39 @@ def replay_run(run_id: int):
     timeframe = str(row["timeframe"])
     history = str(row["history"])
     exchange_mode = str(row["exchange_mode"])
-    data, source_note = load_history_for_run_context(pair, timeframe, history, exchange_mode)
 
     step = infer_step_delta(timeframe)
-    days_by_history = {"7d": 7, "15d": 15, "30d": 30, "90d": 90, "custom": 90}
-    target_points = int((days_by_history.get(history, 30) * 24 * 3600) / max(1.0, step.total_seconds()))
+    days_by_history = {"1d": 1, "2d": 2, "3d": 3, "7d": 7, "15d": 15, "30d": 30, "60d": 60, "90d": 90, "custom": 90}
+    base_days = days_by_history.get(history, 30)
+    created_at_raw = str(row["created_at"] or "")
+    try:
+        created_at_dt = datetime.fromisoformat(created_at_raw)
+        if created_at_dt.tzinfo is None:
+            created_at_dt = created_at_dt.replace(tzinfo=timezone.utc)
+        age_days = max(0, int((datetime.now(timezone.utc) - created_at_dt).total_seconds() / 86400))
+    except Exception:
+        age_days = 0
+    required_days = max(base_days, age_days + 2)
+    # Replay should include the original context window before the run timestamp.
+    # Use the max between configured history and elapsed time so the blue line is meaningful.
+    if "created_at_dt" in locals():
+        context_lookback_days = max(base_days, required_days)
+        start_time = created_at_dt - timedelta(days=context_lookback_days)
+    else:
+        start_time = None
+    end_time = datetime.now(timezone.utc)
+
+    data, source_note = load_history_for_run_context(
+        pair,
+        timeframe,
+        history,
+        exchange_mode,
+        min_days=required_days,
+        start_time=start_time,
+        end_time=end_time,
+    )
+
+    target_points = int((required_days * 24 * 3600) / max(1.0, step.total_seconds()))
     target_points = max(80, min(2000, target_points))
     candles = []
     for ts, r in data.tail(target_points).iterrows():
@@ -818,23 +1440,6 @@ def replay_run(run_id: int):
     payload.setdefault("forecast", {})
     payload["forecast"]["candles"] = candles
 
-    # Re-anchor saved forecast timestamps to the end of refreshed history so
-    # historical (blue) and forecast (orange) stay temporally aligned.
-    saved_projection = payload.get("forecast", {}).get("projection", [])
-    if isinstance(saved_projection, list) and candles:
-        try:
-            last_hist_ts = pd.Timestamp(candles[-1]["timestamp"])
-            rebased_projection = []
-            for i, point in enumerate(saved_projection):
-                if not isinstance(point, dict):
-                    continue
-                new_point = dict(point)
-                new_point["timestamp"] = (last_hist_ts + step * (i + 1)).isoformat()
-                rebased_projection.append(new_point)
-            payload["forecast"]["projection"] = rebased_projection
-        except Exception:
-            # If rebasing fails for any reason, keep original snapshot values.
-            pass
     payload.setdefault("logs", [])
     payload["logs"] = [
         {
@@ -848,6 +1453,14 @@ def replay_run(run_id: int):
     payload["replay"] = {
         "runId": run_id,
         "createdAt": row["created_at"],
+        "pair": pair,
+        "timeframe": timeframe,
+        "history": history,
+        "model": row["model"],
+        "exchange": exchange_mode,
+        "horizon_steps": int(row["horizon_steps"]),
+    }
+    payload["request_context"] = payload.get("request_context") or {
         "pair": pair,
         "timeframe": timeframe,
         "history": history,

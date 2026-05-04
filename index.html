@@ -936,9 +936,13 @@
               <div class="field">
                 <label for="history">range</label>
                 <select id="history" class="input">
+                  <option>1d</option>
+                  <option>2d</option>
+                  <option>3d</option>
                   <option>7d</option>
                   <option selected>15d</option>
                   <option>30d</option>
+                  <option>60d</option>
                   <option>90d</option>
                   <option>custom</option>
                 </select>
@@ -946,6 +950,7 @@
               <div class="field">
                 <label for="model">model</label>
                 <select id="model" class="input">
+                  <option>Kronos-mini</option>
                   <option>Kronos-small</option>
                   <option selected>Kronos-base</option>
                   <option>Kronos-ensemble</option>
@@ -954,19 +959,27 @@
               <div class="field">
                 <label for="exchange">exchange</label>
                 <select id="exchange" class="input">
-                  <option selected>auto</option>
+                  <option selected>binance</option>
                   <option>yahoo</option>
-                  <option>binance</option>
+                  <option>auto</option>
                 </select>
               </div>
               <div class="field">
                 <label for="horizonHours">horizon</label>
                 <select id="horizonHours" class="input">
+                  <option>1</option>
+                  <option>2</option>
+                  <option>3</option>
+                  <option>4</option>
                   <option>6</option>
+                  <option>8</option>
                   <option>12</option>
                   <option selected>24</option>
+                  <option>36</option>
                   <option>48</option>
                   <option>72</option>
+                  <option>96</option>
+                  <option>168</option>
                 </select>
               </div>
               <div class="field">
@@ -1054,6 +1067,7 @@
                       <th>prediction</th>
                       <th class="num-col">confidence</th>
                       <th class="num-col">hist. error</th>
+                      <th class="num-col">delete</th>
                     </tr>
                   </thead>
                   <tbody id="resultsBody"></tbody>
@@ -1156,6 +1170,7 @@
       <span class="llm-terminal-title">Kronos Inference Terminal</span>
       <div class="llm-terminal-head-right">
         <span class="llm-terminal-sub" id="terminalStatus">idle</span>
+        <button id="terminalClear" class="btn btn-secondary terminal-close" type="button">Clean</button>
         <button id="terminalClose" class="btn btn-secondary terminal-close" type="button">Close</button>
       </div>
     </div>
@@ -1170,7 +1185,7 @@
         timeframe: '1h',
         history: '15d',
         model: 'Kronos-base',
-        exchange: 'auto',
+        exchange: 'binance',
         horizonHours: 24,
         sampleRuns: 7
       },
@@ -1182,7 +1197,7 @@
       runs: [],
       logs: [],
       health: { sync: '-', drift: '-', lastError: '-', transport: '-' },
-      ui: { isRunning: false, chartPreset: '15d', terminalOpen: false, timezone: 'Europe/Madrid' },
+      ui: { isRunning: false, chartPreset: '15d', terminalOpen: false, timezone: 'Europe/Madrid', activeJobId: null },
       terminalLogs: [],
       lastForecastPayload: null
     };
@@ -1206,6 +1221,7 @@
       saveRunButton: document.getElementById('saveRunButton'),
       timezoneSelect: document.getElementById('timezoneSelect'),
       terminalToggle: document.getElementById('terminalToggle'),
+      terminalClear: document.getElementById('terminalClear'),
       terminalClose: document.getElementById('terminalClose'),
       llmTerminal: document.getElementById('llmTerminal'),
       terminalBody: document.getElementById('terminalBody'),
@@ -1252,6 +1268,8 @@
     let chart = null;
     let searchTimer = null;
     let latestSuggestions = [];
+    let activePollAbort = null;
+    const ACTIVE_JOB_KEY = 'kronos_active_job_id';
 
     function prettifyTimezone(tz) {
       return String(tz || '')
@@ -1360,51 +1378,71 @@
         c.clear();
         return;
       }
-      const histLabels = candles.map((x) => new Date(x.timestamp).toISOString().slice(0, 16).replace('T', ' '));
-      const predLabels = projection.map((x) => new Date(x.timestamp).toISOString().slice(0, 16).replace('T', ' '));
-      const labels = histLabels.concat(predLabels);
-      const histN = candles.length;
-      const predN = projection.length;
-      const totalN = histN + predN;
+      const tsToKey = (rawTs) => {
+        const t = new Date(rawTs).getTime();
+        return Number.isFinite(t) ? t : NaN;
+      };
+      const fmtLabel = (ts) => new Date(ts).toISOString().slice(0, 16).replace('T', ' ');
+
+      const histRows = candles
+        .map((x) => ({ ts: tsToKey(x.timestamp), close: Number(x.close), volume: Number(x.volume || 0) }))
+        .filter((r) => Number.isFinite(r.ts));
+      const predRows = projection
+        .map((x) => ({
+          ts: tsToKey(x.timestamp),
+          close: Number(x.close),
+          low: Number(x.lower),
+          high: Number(x.upper),
+          volume: Number(x.volume),
+        }))
+        .filter((r) => Number.isFinite(r.ts));
+
+      const allTs = Array.from(new Set([
+        ...histRows.map((r) => r.ts),
+        ...predRows.map((r) => r.ts),
+      ])).sort((a, b) => a - b);
+      if (!allTs.length) {
+        c.clear();
+        return;
+      }
+
+      const labels = allTs.map(fmtLabel);
+      const indexByTs = new Map(allTs.map((ts, idx) => [ts, idx]));
+      const totalN = allTs.length;
 
       const histPrice = new Array(totalN).fill(null);
       const forecastMean = new Array(totalN).fill(null);
-      const forecastUpper = new Array(totalN).fill(null);
-      const forecastLower = new Array(totalN).fill(null);
       const bandLower = new Array(totalN).fill(null);
       const bandRange = new Array(totalN).fill(null);
-
       const histVol = new Array(totalN).fill(null);
       const forecastVol = new Array(totalN).fill(null);
 
-      for (let i = 0; i < histN; i += 1) {
-        histPrice[i] = Number(candles[i].close);
-        histVol[i] = Number(candles[i].volume || 0);
+      for (const r of histRows) {
+        const idx = indexByTs.get(r.ts);
+        if (idx === undefined) continue;
+        histPrice[idx] = r.close;
+        histVol[idx] = r.volume;
       }
 
       const meanForecastVolume = hasNumber(state.analytics.mean_forecasted_volume)
         ? Number(state.analytics.mean_forecasted_volume)
         : null;
 
-      for (let i = 0; i < predN; i += 1) {
-        const idx = histN + i;
-        const p = projection[i];
-        const low = Number(p.lower);
-        const high = Number(p.upper);
-        const mean = Number(p.close);
-        forecastMean[idx] = mean;
-        forecastUpper[idx] = high;
-        forecastLower[idx] = low;
-        bandLower[idx] = low;
-        bandRange[idx] = high - low;
+      for (const p of predRows) {
+        const idx = indexByTs.get(p.ts);
+        if (idx === undefined) continue;
+        forecastMean[idx] = p.close;
+        bandLower[idx] = p.low;
+        bandRange[idx] = p.high - p.low;
         const v = hasNumber(Number(p.volume)) ? Number(p.volume) : meanForecastVolume;
         forecastVol[idx] = v;
       }
 
-      const splitLabel = histLabels[histN - 1];
+      const firstForecastTs = predRows.length ? Math.min(...predRows.map((p) => p.ts)) : null;
+      const splitLabel = Number.isFinite(firstForecastTs) ? fmtLabel(firstForecastTs) : null;
 
-      const visibleHistPoints = chartPresetToPoints(state.ui.chartPreset, state.controls.timeframe, histN);
-      const totalVisiblePoints = Math.min(totalN, visibleHistPoints + predN);
+      const visibleHistPoints = chartPresetToPoints(state.ui.chartPreset, state.controls.timeframe, histRows.length);
+      const totalVisiblePoints = Math.min(totalN, visibleHistPoints + predRows.length);
       const startIndex = Math.max(0, totalN - totalVisiblePoints);
       const endIndex = Math.max(startIndex, totalN - 1);
 
@@ -1517,7 +1555,7 @@
               symbol: 'none',
               label: { show: false },
               lineStyle: { type: 'dashed', color: '#d86a6a', width: 1.2 },
-              data: [{ xAxis: splitLabel }]
+              data: splitLabel ? [{ xAxis: splitLabel }] : []
             }
           },
           {
@@ -1576,54 +1614,69 @@
         sample_runs: state.controls.sampleRuns
       };
       addTerminalLog('step', `prepare payload pair=${body.pair} tf=${body.timeframe} model=${body.model} ex=${body.exchange} h=${body.horizon_steps} n=${body.sample_runs}`);
-      const t0 = performance.now();
-      const response = await fetch('/api/forecast/stream', {
+      const response = await fetch('/api/forecast/jobs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.job_id) {
         throw new Error(data.detail || ('HTTP ' + response.status));
       }
+      return data.job_id;
+    }
 
-      if (!response.body || !response.body.getReader) {
-        throw new Error('Streaming not available in this browser/runtime');
-      }
+    function setActiveJob(jobId) {
+      state.ui.activeJobId = jobId || null;
+      if (state.ui.activeJobId) localStorage.setItem(ACTIVE_JOB_KEY, state.ui.activeJobId);
+      else localStorage.removeItem(ACTIVE_JOB_KEY);
+    }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let finalPayload = null;
+    async function pollForecastJob(jobId) {
+      let after = -1;
+      const t0 = performance.now();
+      const controller = new AbortController();
+      activePollAbort = controller;
       while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          let evt = null;
-          try {
-            evt = JSON.parse(line);
-          } catch (_) {
-            continue;
-          }
-          if (evt.type === 'progress') {
-            const pct = typeof evt.percent === 'number' ? `${evt.percent}% ` : '';
-            addTerminalLog('step', `${pct}${evt.message}`);
-          } else if (evt.type === 'error') {
-            throw new Error(evt.message || `HTTP ${evt.status || 500}`);
-          } else if (evt.type === 'result') {
-            finalPayload = evt.payload || null;
-          }
+        const response = await fetch(`/api/forecast/jobs/${encodeURIComponent(jobId)}?after=${after}`, { signal: controller.signal });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.detail || (`HTTP ${response.status}`));
+        const events = Array.isArray(data.events) ? data.events : [];
+        for (const ev of events) {
+          after = Math.max(after, Number(ev.idx ?? -1));
+          const pct = typeof ev.percent === 'number' ? `${ev.percent}% ` : '';
+          addTerminalLog('step', `${pct}${ev.message || ev.stage || ''}`);
         }
+        if (data.status === 'completed') {
+          const elapsed = Math.round(performance.now() - t0);
+          addTerminalLog('info', `backend response ok (200) in ${elapsed}ms`);
+          if (!data.result || !data.result.forecast) throw new Error('Empty result from backend job');
+          return data.result;
+        }
+        if (data.status === 'failed') {
+          throw new Error(data.error || 'Forecast job failed');
+        }
+        if (data.status === 'cancelled') {
+          throw new Error(data.error || 'Forecast job cancelled');
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1200));
       }
-      const data = finalPayload || {};
-      if (!data || !data.forecast) throw new Error('Empty streaming result from backend');
-      const elapsed = Math.round(performance.now() - t0);
-      addTerminalLog('info', `backend response ok (${response.status}) in ${elapsed}ms`);
-      return data;
+    }
+
+    async function cancelActiveJob() {
+      const jobId = state.ui.activeJobId || localStorage.getItem(ACTIVE_JOB_KEY);
+      if (!jobId) return;
+      const response = await fetch(`/api/forecast/jobs/${encodeURIComponent(jobId)}`, { method: 'DELETE' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || (`HTTP ${response.status}`));
+      addTerminalLog('warn', `cancel requested for job: ${jobId}`);
+      if (activePollAbort) {
+        try { activePollAbort.abort(); } catch (_) {}
+      }
+      setActiveJob(null);
+      state.ui.isRunning = false;
+      renderToolbar();
+      renderHealth();
     }
 
     async function requestRunReplay(runId) {
@@ -1669,13 +1722,22 @@
       addTerminalLog('info', `run saved (${state.runs.length} total saved)`);
     }
 
+    async function deleteSavedRun(runId) {
+      const response = await fetch(`/api/runs/${encodeURIComponent(runId)}`, { method: 'DELETE' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || (`HTTP ${response.status}`));
+      state.runs = data.runs || [];
+      renderRuns();
+      addTerminalLog('info', `run deleted #${runId}`);
+    }
+
     function renderToolbar() {
       nodes.spotPrice.textContent = formatPrice(state.market.price);
       nodes.spotPair.textContent = state.controls.pair;
-      nodes.runButton.disabled = state.ui.isRunning;
+      nodes.runButton.disabled = false;
       nodes.refreshButton.disabled = state.ui.isRunning;
       nodes.saveRunButton.disabled = state.ui.isRunning || !state.lastForecastPayload;
-      nodes.runButton.textContent = state.ui.isRunning ? 'Running…' : 'Run Forecast';
+      nodes.runButton.textContent = state.ui.isRunning ? 'Cancel Run' : 'Run Forecast';
       if (nodes.timezoneSelect && nodes.timezoneSelect.value !== state.ui.timezone) {
         nodes.timezoneSelect.value = state.ui.timezone;
       }
@@ -1738,7 +1800,7 @@
 
     function renderRuns() {
       if (!(state.runs || []).length) {
-        nodes.resultsBody.innerHTML = `<tr><td colspan="6" class="meta">No saved runs yet.</td></tr>`;
+        nodes.resultsBody.innerHTML = `<tr><td colspan="7" class="meta">No saved runs yet.</td></tr>`;
         return;
       }
       nodes.resultsBody.innerHTML = state.runs.map((row) => `
@@ -1749,6 +1811,15 @@
           <td class="${signalToneClass(row.prediction)}">${row.prediction}</td>
           <td class="num-col">${row.confidence}</td>
           <td class="num-col">${row.error}</td>
+          <td class="num-col">
+            <button type="button" class="btn btn-secondary delete-run-btn" data-delete-run-id="${row.id || ''}" title="Delete run" aria-label="Delete run">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <path d="M3 6h18"></path>
+                <path d="M8 6V4h8v2"></path>
+                <path d="M7 6l1 14h8l1-14"></path>
+              </svg>
+            </button>
+          </td>
         </tr>
       `).join('');
     }
@@ -1831,6 +1902,37 @@
       });
     }
 
+    function applyControlsFromContext(ctx) {
+      if (!ctx || typeof ctx !== 'object') return;
+      const tf = String(ctx.timeframe || '').trim();
+      const history = String(ctx.history || '').trim();
+      const model = String(ctx.model || '').trim();
+      const exchange = String(ctx.exchange || '').trim();
+      const pair = String(ctx.pair || '').trim();
+      const sampleRuns = Number(ctx.sample_runs);
+      const horizonSteps = Number(ctx.horizon_steps);
+
+      if (pair) nodes.pair.value = pair.toUpperCase();
+      if (tf && Array.from(nodes.timeframe.options).some((o) => o.value === tf)) nodes.timeframe.value = tf;
+      if (history && Array.from(nodes.history.options).some((o) => o.value === history)) nodes.history.value = history;
+      if (model && Array.from(nodes.model.options).some((o) => o.value === model)) nodes.model.value = model;
+      if (exchange && Array.from(nodes.exchange.options).some((o) => o.value === exchange)) nodes.exchange.value = exchange;
+      if (Number.isFinite(sampleRuns) && Array.from(nodes.sampleRuns.options).some((o) => Number(o.value) === sampleRuns)) {
+        nodes.sampleRuns.value = String(sampleRuns);
+      }
+
+      const tfSecondsMap = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400 };
+      const tfSeconds = tfSecondsMap[nodes.timeframe.value] || 3600;
+      if (Number.isFinite(horizonSteps) && horizonSteps > 0) {
+        const horizonHours = Math.round((horizonSteps * tfSeconds) / 3600);
+        if (Array.from(nodes.horizonHours.options).some((o) => Number(o.value) === horizonHours)) {
+          nodes.horizonHours.value = String(horizonHours);
+        }
+      }
+      syncControlsFromInputs();
+      renderToolbar();
+    }
+
     async function runForecast() {
       syncControlsFromInputs();
       state.ui.isRunning = true;
@@ -1839,17 +1941,26 @@
       renderToolbar();
       addTerminalLog('step', 'run forecast started');
       try {
-        const payload = await requestForecast();
+        const jobId = await requestForecast();
+        setActiveJob(jobId);
+        addTerminalLog('info', `job created: ${jobId}`);
+        const payload = await pollForecastJob(jobId);
         state.lastForecastPayload = payload;
         applyPayload(payload);
         addTerminalLog('info', `signal=${payload?.signal?.direction || '-'} confidence=${payload?.signal?.confidencePct ?? '-'}% risk=${payload?.signal?.risk || '-'}`);
       } catch (error) {
+        if (String(error.message || '').toLowerCase().includes('aborted')) {
+          addTerminalLog('warn', 'run polling aborted locally');
+          return;
+        }
         state.logs = [{ time: nowTs(), level: 'error', title: 'Forecast error', detail: String(error.message || error) }];
         state.health.lastError = String(error.message || error);
         state.ui.isRunning = false;
         addTerminalLog('error', `forecast failed: ${String(error.message || error)}`);
         renderAll();
       } finally {
+        activePollAbort = null;
+        setActiveJob(null);
         state.ui.isRunning = false;
         renderToolbar();
         renderHealth();
@@ -1867,8 +1978,11 @@
       addTerminalLog('step', `loading replay for run #${id}`);
       try {
         const payload = await requestRunReplay(id);
-        applyPayload(payload);
         const replay = payload.replay || {};
+        const requestContext = payload.request_context || {};
+        applyControlsFromContext(Object.keys(requestContext).length ? requestContext : replay);
+        applyPayload(payload);
+        applyChartPreset('all');
         addTerminalLog('info', `replay loaded #${id} (${replay.pair || '-'} ${replay.timeframe || '-'})`);
       } catch (error) {
         addTerminalLog('error', `replay failed #${id}: ${String(error.message || error)}`);
@@ -1885,7 +1999,17 @@
 
     function bindEvents() {
       nodes.refreshButton.addEventListener('click', refreshFeed);
-      nodes.runButton.addEventListener('click', runForecast);
+      nodes.runButton.addEventListener('click', async () => {
+        if (state.ui.isRunning) {
+          try {
+            await cancelActiveJob();
+          } catch (error) {
+            addTerminalLog('error', `cancel failed: ${String(error.message || error)}`);
+          }
+          return;
+        }
+        runForecast();
+      });
       nodes.saveRunButton.addEventListener('click', async () => {
         try {
           await saveCurrentRun();
@@ -1918,6 +2042,17 @@
       });
 
       nodes.resultsBody.addEventListener('click', (ev) => {
+        const delBtn = ev.target.closest('[data-delete-run-id]');
+        if (delBtn) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          const runId = delBtn.getAttribute('data-delete-run-id');
+          if (!runId) return;
+          deleteSavedRun(runId).catch((error) => {
+            addTerminalLog('error', `delete failed #${runId}: ${String(error.message || error)}`);
+          });
+          return;
+        }
         const tr = ev.target.closest('tr[data-run-id]');
         if (!tr) return;
         const runId = tr.getAttribute('data-run-id');
@@ -1974,6 +2109,10 @@
         state.ui.terminalOpen = false;
         renderTerminal();
       });
+      nodes.terminalClear.addEventListener('click', () => {
+        state.terminalLogs = [];
+        renderTerminal();
+      });
 
       document.addEventListener('keydown', (ev) => {
         if (ev.key === 'Escape' && state.ui.terminalOpen) {
@@ -1988,6 +2127,28 @@
       bindEvents();
       syncControlsFromInputs();
       renderAll();
+      const pendingJob = localStorage.getItem(ACTIVE_JOB_KEY);
+      if (pendingJob) {
+        state.ui.isRunning = true;
+        state.ui.terminalOpen = true;
+        renderToolbar();
+        renderTerminal();
+        addTerminalLog('info', `resuming job: ${pendingJob}`);
+        try {
+          const payload = await pollForecastJob(pendingJob);
+          state.lastForecastPayload = payload;
+          applyPayload(payload);
+          addTerminalLog('info', 'resumed job completed');
+          setActiveJob(null);
+          state.ui.isRunning = false;
+          renderToolbar();
+        } catch (error) {
+          addTerminalLog('error', `resume failed: ${String(error.message || error)}`);
+          setActiveJob(null);
+          state.ui.isRunning = false;
+          renderToolbar();
+        }
+      }
       try {
         await loadSavedRuns();
       } catch (error) {

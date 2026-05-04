@@ -4,10 +4,12 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Dict, Tuple
 
+import numpy as np
 import pandas as pd
 from model import Kronos, KronosPredictor, KronosTokenizer
 
 MODEL_SPECS: Dict[str, Tuple[str, str]] = {
+    "Kronos-mini": ("NeoQuasar/Kronos-mini", "NeoQuasar/Kronos-Tokenizer-2k"),
     "Kronos-small": ("NeoQuasar/Kronos-small", "NeoQuasar/Kronos-Tokenizer-base"),
     "Kronos-base": ("NeoQuasar/Kronos-base", "NeoQuasar/Kronos-Tokenizer-base"),
 }
@@ -19,7 +21,7 @@ class LoadedModel:
     model_name: str
 
 
-@lru_cache(maxsize=2)
+@lru_cache(maxsize=3)
 def load_predictor(model_name: str) -> LoadedModel:
     if model_name not in MODEL_SPECS:
         raise ValueError(f"Unsupported Kronos model: {model_name}")
@@ -40,16 +42,45 @@ def run_forecast(
     sample_count: int = 1,
 ) -> pd.DataFrame:
     loaded = load_predictor(model_name)
-    return loaded.predictor.predict(
+    close_df, volume_df = loaded.predictor.predict(
         df=history_df,
         x_timestamp=x_ts,
         y_timestamp=y_ts,
         pred_len=pred_len,
         T=1.0,
-        top_p=0.9,
+        top_p=0.95,
         sample_count=sample_count,
         verbose=False,
     )
+    return pd.DataFrame(
+        {
+            "close": close_df.mean(axis=1).astype(float),
+            "volume": volume_df.mean(axis=1).astype(float),
+        },
+        index=close_df.index,
+    )
+
+
+def run_forecast_paths(
+    model_name: str,
+    history_df: pd.DataFrame,
+    x_ts: pd.Series,
+    y_ts: pd.Series,
+    pred_len: int,
+    sample_count: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    loaded = load_predictor(model_name)
+    close_df, volume_df = loaded.predictor.predict(
+        df=history_df,
+        x_timestamp=x_ts,
+        y_timestamp=y_ts,
+        pred_len=pred_len,
+        T=1.0,
+        top_p=0.95,
+        sample_count=sample_count,
+        verbose=False,
+    )
+    return close_df.to_numpy(dtype=float).T, volume_df.to_numpy(dtype=float).T
 
 
 def run_ensemble_forecast(
